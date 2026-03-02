@@ -5,7 +5,12 @@ import { BookOpen, GraduationCap, BrainCircuit, Loader2, Send, Settings2, AlertC
 import mermaid from 'mermaid';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+let ai: GoogleGenAI | null = null;
+try {
+  ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || 'dummy_key' });
+} catch (e) {
+  console.error("Failed to initialize GoogleGenAI", e);
+}
 
 const ADMINS = [
   // 2 Admin Logins
@@ -17,17 +22,17 @@ const ADMINS = [
   { email: 'analytics3@gmail.com', password: 'analytics123', role: 'analytics' }
 ];
 
-const AdminDashboard = ({ role }: { role: string }) => {
-  const getSafeJSON = (key: string, defaultValue: any) => {
-    try {
-      const val = localStorage.getItem(key);
-      if (!val || val === 'undefined') return defaultValue;
-      return JSON.parse(val);
-    } catch (e) {
-      return defaultValue;
-    }
-  };
+const getSafeJSON = (key: string, defaultValue: any) => {
+  try {
+    const val = localStorage.getItem(key);
+    if (!val || val === 'undefined') return defaultValue;
+    return JSON.parse(val);
+  } catch (e) {
+    return defaultValue;
+  }
+};
 
+const AdminDashboard = ({ role }: { role: string }) => {
   const users = getSafeJSON('examprep_users', []);
   const generations = getSafeJSON('examprep_generations', []);
 
