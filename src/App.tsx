@@ -5,7 +5,7 @@ import { BookOpen, GraduationCap, BrainCircuit, Loader2, Send, Settings2, AlertC
 import mermaid from 'mermaid';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY });
 
 const ADMINS = [
   // 2 Admin Logins
