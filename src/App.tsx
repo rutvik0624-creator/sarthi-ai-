@@ -5,7 +5,7 @@ import { BookOpen, GraduationCap, BrainCircuit, Loader2, Send, Settings2, AlertC
 import mermaid from 'mermaid';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
-const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY });
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 const ADMINS = [
   // 2 Admin Logins
@@ -18,8 +18,18 @@ const ADMINS = [
 ];
 
 const AdminDashboard = ({ role }: { role: string }) => {
-  const users = JSON.parse(localStorage.getItem('examprep_users') || '[]');
-  const generations = JSON.parse(localStorage.getItem('examprep_generations') || '[]');
+  const getSafeJSON = (key: string, defaultValue: any) => {
+    try {
+      const val = localStorage.getItem(key);
+      if (!val || val === 'undefined') return defaultValue;
+      return JSON.parse(val);
+    } catch (e) {
+      return defaultValue;
+    }
+  };
+
+  const users = getSafeJSON('examprep_users', []);
+  const generations = getSafeJSON('examprep_generations', []);
 
   const examCounts = generations.reduce((acc: any, curr: any) => {
     acc[curr.exam] = (acc[curr.exam] || 0) + 1;
@@ -283,7 +293,7 @@ export default function App() {
       setShowLoginModal(false);
       
       if (!adminUser) {
-        const users = JSON.parse(localStorage.getItem('examprep_users') || '[]');
+        const users = getSafeJSON('examprep_users', []);
         if (!users.find((u: any) => u.email === email)) {
           users.push({ 
             email, 
@@ -337,7 +347,7 @@ export default function App() {
       }
       
       // Log generation
-      const gens = JSON.parse(localStorage.getItem('examprep_generations') || '[]');
+      const gens = getSafeJSON('examprep_generations', []);
       gens.push({ 
         email: isLoggedIn ? loggedInUser : 'Anonymous', 
         topic, 
