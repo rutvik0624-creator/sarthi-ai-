@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI, Type } from '@google/genai';
 import Markdown from 'react-markdown';
-import { BookOpen, GraduationCap, BrainCircuit, Loader2, Send, Settings2, AlertCircle, User, LogOut, X, Lock, LayoutDashboard, Users, Activity, BarChart3, Menu, FileText, Target, AlertTriangle, CheckCircle, XCircle, Trash2, Calendar, Sparkles, Layers, Newspaper, MessageCircle, ListChecks, Image as ImageIcon, ChevronRight, ChevronLeft, RotateCcw, Copy } from 'lucide-react';
+import { BookOpen, GraduationCap, BrainCircuit, Loader2, Send, Settings2, AlertCircle, User, LogOut, X, Lock, LayoutDashboard, Users, Activity, BarChart3, Menu, FileText, Target, AlertTriangle, CheckCircle, XCircle, Trash2, Calendar, Sparkles, Layers, Newspaper, MessageCircle, ListChecks, Image as ImageIcon, ChevronRight, ChevronLeft, RotateCcw, Copy, Timer } from 'lucide-react';
 import mermaid from 'mermaid';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
@@ -327,7 +327,7 @@ export default function App() {
   const [loggedInUser, setLoggedInUser] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
   const [userRole, setUserRole] = useState('');
-  const [currentView, setCurrentView] = useState<'main' | 'admin' | 'test' | 'mistakes' | 'planner' | 'quiz' | 'syllabus' | 'doubts'>('main');
+  const [currentView, setCurrentView] = useState<'main' | 'admin' | 'test' | 'mistakes' | 'planner' | 'quiz' | 'syllabus' | 'doubts' | 'focus'>('main');
 
   // Test & Mistakes state
   const [testQuestions, setTestQuestions] = useState<any[]>([]);
@@ -372,6 +372,12 @@ export default function App() {
   const [chatLoading, setChatLoading] = useState(false);
   const [chatImage, setChatImage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Focus Mode state
+  const [isFocusActive, setIsFocusActive] = useState(false);
+  const [focusTimeElapsed, setFocusTimeElapsed] = useState(0); // in seconds
+  const [dailyFocusStats, setDailyFocusStats] = useState<Record<string, number>>({});
+  const focusTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (currentView === 'mistakes') {
@@ -815,6 +821,61 @@ export default function App() {
     }
   }, [currentView, exam]);
 
+  useEffect(() => {
+    if (currentView === 'focus') {
+      const savedStats = getSafeJSON('examprep_focus_stats', {});
+      setDailyFocusStats(savedStats);
+    }
+  }, [currentView]);
+
+  const toggleFocusMode = () => {
+    if (isFocusActive) {
+      // Stop focus mode
+      setIsFocusActive(false);
+      if (focusTimerRef.current) clearInterval(focusTimerRef.current);
+      
+      // Save stats
+      const today = new Date().toISOString().split('T')[0];
+      setDailyFocusStats(prev => {
+        const updated = { ...prev };
+        updated[today] = (updated[today] || 0) + focusTimeElapsed;
+        localStorage.setItem('examprep_focus_stats', JSON.stringify(updated));
+        return updated;
+      });
+      setFocusTimeElapsed(0);
+      
+      // Exit full screen if possible
+      if (document.fullscreenElement) {
+        document.exitFullscreen().catch(err => console.log(err));
+      }
+    } else {
+      // Start focus mode
+      setIsFocusActive(true);
+      setFocusTimeElapsed(0);
+      focusTimerRef.current = setInterval(() => {
+        setFocusTimeElapsed(prev => prev + 1);
+      }, 1000);
+      
+      // Request full screen
+      document.documentElement.requestFullscreen().catch(err => console.log(err));
+    }
+  };
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (focusTimerRef.current) clearInterval(focusTimerRef.current);
+    };
+  }, []);
+
+  const formatTime = (seconds: number) => {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    if (h > 0) return `${h}h ${m}m ${s}s`;
+    return `${m}m ${s}s`;
+  };
+
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -951,6 +1012,13 @@ export default function App() {
             >
               <MessageCircle size={18} />
               Doubt Solver
+            </button>
+            <button 
+              onClick={() => setCurrentView('focus')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${currentView === 'focus' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'}`}
+            >
+              <Timer size={18} />
+              Focus Timer
             </button>
           </div>
 
@@ -1721,6 +1789,70 @@ export default function App() {
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+        ) : currentView === 'focus' ? (
+          <div className="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth flex flex-col items-center justify-center">
+            <div className="max-w-xl w-full space-y-8 pb-12 text-center">
+              <div className="bg-white/80 backdrop-blur-xl rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-200/60 p-10 md:p-16 relative overflow-hidden">
+                <div className={`absolute top-0 left-0 right-0 h-2 transition-all duration-1000 ${isFocusActive ? 'bg-emerald-500' : 'bg-slate-200'}`}></div>
+                
+                <div className="mb-8">
+                  <div className={`w-24 h-24 mx-auto rounded-full flex items-center justify-center mb-6 transition-all duration-500 ${isFocusActive ? 'bg-emerald-100 text-emerald-600 shadow-[0_0_40px_rgba(16,185,129,0.3)]' : 'bg-slate-100 text-slate-400'}`}>
+                    <Timer size={48} className={isFocusActive ? 'animate-pulse' : ''} />
+                  </div>
+                  <h2 className="text-3xl font-black text-slate-900 tracking-tight mb-2">
+                    {isFocusActive ? 'Focus Mode Active' : 'Ready to Focus?'}
+                  </h2>
+                  <p className="text-slate-500 font-medium max-w-sm mx-auto">
+                    {isFocusActive 
+                      ? "You are in full-screen focus mode. Stay concentrated on your studies." 
+                      : "Start the timer to enter full-screen mode and track your study session."}
+                  </p>
+                </div>
+
+                <div className="text-7xl font-black text-slate-800 tracking-tighter tabular-nums mb-10">
+                  {formatTime(focusTimeElapsed)}
+                </div>
+
+                <button
+                  onClick={toggleFocusMode}
+                  className={`w-full py-5 rounded-2xl font-black text-xl transition-all shadow-lg hover:shadow-xl hover:-translate-y-1 flex items-center justify-center gap-3 ${isFocusActive ? 'bg-red-500 hover:bg-red-600 text-white shadow-red-500/20' : 'bg-slate-900 hover:bg-slate-800 text-white shadow-slate-900/20'}`}
+                >
+                  {isFocusActive ? (
+                    <>Stop Session & Save</>
+                  ) : (
+                    <>Start Focus Session</>
+                  )}
+                </button>
+                
+                {!isFocusActive && (
+                  <p className="text-xs text-slate-400 mt-6 font-medium">
+                    Note: For technical reasons, we cannot block other apps on your device. This mode will enter full-screen to minimize distractions and track your study time.
+                  </p>
+                )}
+              </div>
+
+              {!isFocusActive && Object.keys(dailyFocusStats).length > 0 && (
+                <div className="bg-white/80 backdrop-blur-xl rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-200/60 p-8 text-left">
+                  <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
+                    <BarChart3 size={20} className="text-indigo-500" />
+                    Your Focus History
+                  </h3>
+                  <div className="space-y-4">
+                    {Object.entries(dailyFocusStats).sort((a, b) => b[0].localeCompare(a[0])).slice(0, 7).map(([date, seconds]) => (
+                      <div key={date} className="flex items-center justify-between p-4 rounded-xl bg-slate-50 border border-slate-100">
+                        <div className="font-semibold text-slate-700">
+                          {new Date(date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+                        </div>
+                        <div className="font-black text-indigo-600 bg-indigo-50 px-3 py-1 rounded-lg">
+                          {formatTime(seconds)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         ) : (
