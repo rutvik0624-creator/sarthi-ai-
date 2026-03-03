@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, Type } from '@google/genai';
 import Markdown from 'react-markdown';
-import { BookOpen, GraduationCap, BrainCircuit, Loader2, Send, Settings2, AlertCircle, User, LogOut, X, Lock, LayoutDashboard, Users, Activity, BarChart3, Menu } from 'lucide-react';
+import { BookOpen, GraduationCap, BrainCircuit, Loader2, Send, Settings2, AlertCircle, User, LogOut, X, Lock, LayoutDashboard, Users, Activity, BarChart3, Menu, FileText, Target, AlertTriangle, CheckCircle, XCircle, Trash2 } from 'lucide-react';
 import mermaid from 'mermaid';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
@@ -163,22 +163,60 @@ const AdminDashboard = ({ role }: { role: string }) => {
 
 const Mermaid = ({ chart }: { chart: string }) => {
   const ref = useRef<HTMLDivElement>(null);
+  const [error, setError] = useState(false);
   
   useEffect(() => {
+    let isMounted = true;
     const renderChart = async () => {
       try {
-        mermaid.initialize({ startOnLoad: false, theme: 'default' });
+        setError(false);
+        mermaid.initialize({ 
+          startOnLoad: false, 
+          theme: 'default',
+          suppressErrorRendering: true 
+        });
         const id = `mermaid-${Math.random().toString(36).substring(2, 9)}`;
+        
+        // Check if chart is empty or just whitespace
+        if (!chart || !chart.trim()) return;
+
+        // Validate syntax before rendering to prevent error SVGs
+        try {
+          await mermaid.parse(chart);
+        } catch (parseError) {
+          throw new Error("Invalid Mermaid syntax");
+        }
+
         const { svg } = await mermaid.render(id, chart);
-        if (ref.current) {
+        if (isMounted && ref.current) {
           ref.current.innerHTML = svg;
         }
       } catch (e) {
-        // Ignore errors during streaming/partial rendering
+        if (isMounted) {
+          setError(true);
+        }
+        // Clean up any error SVGs mermaid might have appended to the body
+        const errorElement = document.querySelector(`[id^="dmermaid-"]`);
+        if (errorElement) {
+          errorElement.remove();
+        }
       }
     };
     renderChart();
+    
+    return () => {
+      isMounted = false;
+    };
   }, [chart]);
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center p-4 my-6 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-500">
+        <AlertCircle size={16} className="mr-2 text-slate-400" />
+        Diagram could not be rendered (invalid syntax)
+      </div>
+    );
+  }
 
   return <div ref={ref} className="flex justify-center my-6 overflow-x-auto" />;
 };
@@ -196,15 +234,17 @@ When a student enters a topic or question, respond in this structured format:
 
 -----------------------------------------
 
-📌 1. CONCEPT EXPLANATION
+📌 1. CONCEPT EXPLANATION (ULTIMATE MASTER NOTES)
 
 - Explain the topic EXACTLY as an examiner expects to see it written in an exam sheet, or the exact logic needed to solve the MCQ.
+- CRITICAL RULE: This explanation MUST be so comprehensive and detailed that it covers ALL concepts asked in Previous Year Questions (PYQs). If a student reads this explanation, they should NOT need to read NCERT or any other textbook.
+- Include all exceptions, special cases, and hidden textbook points that are frequently asked in exams.
 - DO NOT use conversational AI language (e.g., "Sure, I can help with that", "Imagine you are...", "Let's dive in").
 - Be direct, concise, and purely academic.
 - If a diagram is necessary to explain the concept, use Mermaid.js syntax inside a \`\`\`mermaid code block.
 - Use structured format:
    • Definition (Exact textbook/official definition)
-   • Key Concepts (Bullet points only)
+   • Key Concepts (Bullet points only, covering every single PYQ angle)
    • Important Formulas (if applicable)
    • Short Tricks (if applicable)
    • Common Mistakes (What examiners look for to deduct marks)
@@ -287,7 +327,21 @@ export default function App() {
   const [loggedInUser, setLoggedInUser] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
   const [userRole, setUserRole] = useState('');
-  const [currentView, setCurrentView] = useState<'main' | 'admin'>('main');
+  const [currentView, setCurrentView] = useState<'main' | 'admin' | 'test' | 'mistakes'>('main');
+
+  // Test & Mistakes state
+  const [testQuestions, setTestQuestions] = useState<any[]>([]);
+  const [userAnswers, setUserAnswers] = useState<Record<number, number>>({});
+  const [testSubmitted, setTestSubmitted] = useState(false);
+  const [testLoading, setTestLoading] = useState(false);
+  const [testError, setTestError] = useState('');
+  const [mistakesList, setMistakesList] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (currentView === 'mistakes') {
+      setMistakesList(getSafeJSON('examprep_mistakes', []));
+    }
+  }, [currentView]);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const handleLogin = (e: React.FormEvent) => {
@@ -376,52 +430,180 @@ export default function App() {
     }
   };
 
+  const handleGenerateTest = async () => {
+    if (!isLoggedIn && generationCount >= 2) {
+      setShowLoginModal(true);
+      return;
+    }
+
+    if (!topic.trim()) {
+      setTestError('Please enter a topic to generate a test.');
+      return;
+    }
+    
+    setTestError('');
+    setTestLoading(true);
+    setTestQuestions([]);
+    setUserAnswers({});
+    setTestSubmitted(false);
+
+    try {
+      if (!ai) throw new Error("AI not initialized");
+      const prompt = `Generate 5 Previous Year Questions (PYQs) for Exam: ${exam}, Subject: ${subject || 'Not specified'}, Topic: ${topic}. Return ONLY a valid JSON array of objects. Each object must have: 'question' (string), 'options' (array of 4 strings), 'correctOptionIndex' (number 0-3), 'explanation' (string), 'year' (string).`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                question: { type: Type.STRING },
+                options: { type: Type.ARRAY, items: { type: Type.STRING } },
+                correctOptionIndex: { type: Type.INTEGER },
+                explanation: { type: Type.STRING },
+                year: { type: Type.STRING }
+              },
+              required: ['question', 'options', 'correctOptionIndex', 'explanation', 'year']
+            }
+          }
+        },
+      });
+
+      const data = JSON.parse(response.text || '[]');
+      setTestQuestions(data);
+      
+      // Log generation
+      const gens = getSafeJSON('examprep_generations', []);
+      gens.push({ 
+        email: isLoggedIn ? loggedInUser : 'Anonymous', 
+        topic: `Test: ${topic}`, 
+        exam, 
+        subject: subject || 'N/A',
+        date: new Date().toISOString() 
+      });
+      localStorage.setItem('examprep_generations', JSON.stringify(gens));
+
+      if (!isLoggedIn) {
+        setGenerationCount(prev => prev + 1);
+      }
+      
+    } catch (err: any) {
+      console.error(err);
+      setTestError(err.message || 'An error occurred while generating the test.');
+    } finally {
+      setTestLoading(false);
+    }
+  };
+
+  const submitTest = () => {
+    setTestSubmitted(true);
+    
+    // Log mistakes
+    const mistakes = getSafeJSON('examprep_mistakes', []);
+    testQuestions.forEach((q, index) => {
+      if (userAnswers[index] !== q.correctOptionIndex) {
+        mistakes.push({
+          id: Date.now() + index,
+          question: q.question,
+          options: q.options,
+          userAnswer: userAnswers[index] !== undefined ? q.options[userAnswers[index]] : 'Not Attempted',
+          correctAnswer: q.options[q.correctOptionIndex],
+          explanation: q.explanation,
+          exam,
+          subject: subject || 'N/A',
+          topic,
+          date: new Date().toISOString()
+        });
+      }
+    });
+    localStorage.setItem('examprep_mistakes', JSON.stringify(mistakes));
+  };
+
+  const deleteMistake = (id: number) => {
+    const mistakes = getSafeJSON('examprep_mistakes', []);
+    const updated = mistakes.filter((m: any) => m.id !== id);
+    localStorage.setItem('examprep_mistakes', JSON.stringify(updated));
+    setMistakesList(updated);
+  };
+
   return (
-    <div className="h-screen bg-slate-50 text-slate-900 flex overflow-hidden font-sans relative">
+    <div className="h-screen bg-[#F8FAFC] text-slate-900 flex overflow-hidden font-sans relative selection:bg-indigo-100 selection:text-indigo-900">
+      {/* Background Pattern */}
+      <div className="absolute inset-0 z-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: 'radial-gradient(#000 1px, transparent 1px)', backgroundSize: '24px 24px' }}></div>
+
       {/* Mobile Overlay */}
       {isMobileMenuOpen && (
         <div 
-          className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-40 md:hidden"
+          className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-40 md:hidden transition-opacity"
           onClick={() => setIsMobileMenuOpen(false)}
         />
       )}
 
       {/* Sidebar */}
       <aside className={`
-        fixed md:static inset-y-0 left-0 z-50 w-80 bg-white border-r border-slate-200 p-6 flex flex-col shrink-0 h-screen overflow-y-auto transition-transform duration-300 ease-in-out
+        fixed md:static inset-y-0 left-0 z-50 w-80 bg-white/80 backdrop-blur-xl border-r border-slate-200/60 p-6 flex flex-col shrink-0 h-screen overflow-y-auto transition-transform duration-300 ease-in-out shadow-[4px_0_24px_rgba(0,0,0,0.02)]
         ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
       `}>
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-3">
-            <div className="bg-indigo-600 p-2 rounded-xl text-white">
-              <GraduationCap size={24} />
+            <div className="bg-gradient-to-br from-indigo-600 to-violet-600 p-2.5 rounded-xl text-white shadow-lg shadow-indigo-500/20">
+              <GraduationCap size={24} strokeWidth={2.5} />
             </div>
             <div>
-              <h1 className="text-xl font-bold tracking-tight text-slate-900">Exam Sarthi AI</h1>
-              <p className="text-xs text-slate-500 font-medium">South Asian Exams</p>
+              <h1 className="text-xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-slate-900 to-slate-700 tracking-tight">Exam Sarthi AI</h1>
+              <p className="text-xs text-slate-500 font-semibold tracking-wide uppercase mt-0.5">South Asian Exams</p>
             </div>
           </div>
           <button 
-            className="md:hidden text-slate-400 hover:text-slate-600"
+            className="md:hidden text-slate-400 hover:text-slate-600 bg-slate-100 p-2 rounded-lg"
             onClick={() => setIsMobileMenuOpen(false)}
           >
-            <X size={24} />
+            <X size={20} />
           </button>
         </div>
 
         <div className="space-y-6 flex-1">
-          <div className="space-y-4">
-            <div className="flex items-center gap-2 text-sm font-semibold text-slate-700 uppercase tracking-wider">
-              <Settings2 size={16} />
+          <div className="space-y-2 mb-6">
+            <button 
+              onClick={() => setCurrentView('main')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${currentView === 'main' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'}`}
+            >
+              <BookOpen size={18} />
+              Study Material
+            </button>
+            <button 
+              onClick={() => setCurrentView('test')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${currentView === 'test' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'}`}
+            >
+              <Target size={18} />
+              PYQ Test
+            </button>
+            <button 
+              onClick={() => setCurrentView('mistakes')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${currentView === 'mistakes' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'}`}
+            >
+              <AlertTriangle size={18} />
+              Mistake Tracker
+            </button>
+          </div>
+
+          <div className="space-y-5">
+            <div className="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase tracking-widest">
+              <Settings2 size={14} />
               <span>Exam Settings</span>
             </div>
 
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium text-slate-700">Target Exam</label>
+            <div className="space-y-2">
+              <label className="text-sm font-semibold text-slate-700">Target Exam</label>
               <select
                 value={exam}
                 onChange={(e) => setExam(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                className="w-full rounded-xl border border-slate-200/80 bg-slate-50/50 px-4 py-2.5 text-sm font-medium text-slate-700 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all hover:border-indigo-300 cursor-pointer appearance-none"
+                style={{ backgroundImage: `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`, backgroundPosition: `right 0.5rem center`, backgroundRepeat: `no-repeat`, backgroundSize: `1.5em 1.5em`, paddingRight: `2.5rem` }}
               >
                 <optgroup label="India - Undergrad Entrance">
                   <option value="JEE Main">JEE Main</option>
@@ -468,23 +650,24 @@ export default function App() {
               </select>
             </div>
 
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium text-slate-700">Subject (Optional)</label>
+            <div className="space-y-2">
+              <label className="text-sm font-semibold text-slate-700">Subject (Optional)</label>
               <input
                 type="text"
                 value={subject}
                 onChange={(e) => setSubject(e.target.value)}
                 placeholder="e.g. Physics, History, Quant..."
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                className="w-full rounded-xl border border-slate-200/80 bg-slate-50/50 px-4 py-2.5 text-sm font-medium text-slate-700 placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all hover:border-indigo-300"
               />
             </div>
 
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium text-slate-700">Difficulty Level</label>
+            <div className="space-y-2">
+              <label className="text-sm font-semibold text-slate-700">Difficulty Level</label>
               <select
                 value={difficulty}
                 onChange={(e) => setDifficulty(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                className="w-full rounded-xl border border-slate-200/80 bg-slate-50/50 px-4 py-2.5 text-sm font-medium text-slate-700 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all hover:border-indigo-300 cursor-pointer appearance-none"
+                style={{ backgroundImage: `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`, backgroundPosition: `right 0.5rem center`, backgroundRepeat: `no-repeat`, backgroundSize: `1.5em 1.5em`, paddingRight: `2.5rem` }}
               >
                 <option value="Easy">Easy (Basic Concepts)</option>
                 <option value="Medium">Medium (Standard Exam Level)</option>
@@ -494,26 +677,26 @@ export default function App() {
           </div>
         </div>
         
-        <div className="mt-auto pt-6">
+        <div className="mt-auto pt-6 relative z-10">
           {isLoggedIn ? (
             <div className="space-y-3">
-              <div className="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-200">
+              <div className="flex items-center justify-between bg-white p-3 rounded-2xl border border-slate-200/60 shadow-sm">
                 <div className="flex items-center gap-3">
-                  <div className="bg-indigo-100 p-2 rounded-full text-indigo-600">
-                    <User size={16} />
+                  <div className="bg-indigo-50 p-2 rounded-xl text-indigo-600">
+                    <User size={18} />
                   </div>
-                  <div className="text-sm font-medium text-slate-700 truncate max-w-[120px]">
+                  <div className="text-sm font-bold text-slate-700 truncate max-w-[120px]">
                     {loggedInUser}
                   </div>
                 </div>
-                <button onClick={() => { setIsLoggedIn(false); setIsAdmin(false); setUserRole(''); setLoggedInUser(''); setCurrentView('main'); }} className="text-slate-400 hover:text-slate-600 transition-colors" title="Log out">
+                <button onClick={() => { setIsLoggedIn(false); setIsAdmin(false); setUserRole(''); setLoggedInUser(''); setCurrentView('main'); }} className="text-slate-400 hover:text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors" title="Log out">
                   <LogOut size={18} />
                 </button>
               </div>
               {isAdmin && (
                 <button
                   onClick={() => setCurrentView(currentView === 'admin' ? 'main' : 'admin')}
-                  className="w-full flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 transition-all"
+                  className="w-full flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-bold text-white shadow-md hover:bg-slate-800 hover:scale-[1.02] active:scale-[0.98] transition-all"
                 >
                   <LayoutDashboard size={18} />
                   {currentView === 'admin' ? 'Back to App' : (userRole === 'admin' ? 'Admin Dashboard' : 'Analytics Dashboard')}
@@ -522,12 +705,12 @@ export default function App() {
             </div>
           ) : (
             <div className="space-y-3">
-              <div className="text-xs text-slate-500 font-medium text-center">
-                Free generations left: <span className="text-indigo-600 font-bold">{Math.max(0, 2 - generationCount)}</span>
+              <div className="text-xs text-slate-500 font-semibold text-center bg-slate-50 py-2 rounded-lg border border-slate-100">
+                Free generations left: <span className="text-indigo-600 font-extrabold text-sm ml-1">{Math.max(0, 2 - generationCount)}</span>
               </div>
               <button
                 onClick={() => setShowLoginModal(true)}
-                className="w-full flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 transition-all"
+                className="w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-slate-800 to-slate-900 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-slate-900/20 hover:from-slate-700 hover:to-slate-800 hover:scale-[1.02] active:scale-[0.98] transition-all"
               >
                 <User size={18} />
                 Sign in / Sign up
@@ -538,17 +721,17 @@ export default function App() {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col h-screen overflow-hidden w-full relative">
+      <main className="flex-1 flex flex-col h-screen overflow-hidden w-full relative z-10">
         {/* Mobile Header */}
-        <header className="md:hidden flex items-center justify-between p-4 bg-white border-b border-slate-200 shrink-0">
+        <header className="md:hidden flex items-center justify-between p-4 bg-white/80 backdrop-blur-xl border-b border-slate-200/60 shrink-0 sticky top-0 z-30">
           <div className="flex items-center gap-2">
-            <div className="bg-indigo-600 p-1.5 rounded-lg text-white">
-              <GraduationCap size={20} />
+            <div className="bg-gradient-to-br from-indigo-600 to-violet-600 p-1.5 rounded-lg text-white shadow-md shadow-indigo-500/20">
+              <GraduationCap size={20} strokeWidth={2.5} />
             </div>
-            <h1 className="text-lg font-bold tracking-tight text-slate-900">Exam Sarthi AI</h1>
+            <h1 className="text-lg font-extrabold tracking-tight text-slate-900">Exam Sarthi AI</h1>
           </div>
           <button 
-            className="text-slate-600 p-2 -mr-2"
+            className="text-slate-600 p-2 -mr-2 hover:bg-slate-100 rounded-lg transition-colors"
             onClick={() => setIsMobileMenuOpen(true)}
           >
             <Menu size={24} />
@@ -557,52 +740,267 @@ export default function App() {
 
         {currentView === 'admin' ? (
           <AdminDashboard role={userRole} />
+        ) : currentView === 'test' ? (
+          <div className="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth">
+            <div className="max-w-4xl mx-auto space-y-8 pb-12">
+              <div className="bg-white/80 backdrop-blur-xl rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-200/60 p-6 md:p-8">
+                <div className="mb-6">
+                  <h2 className="text-xl font-extrabold text-slate-900 flex items-center gap-3">
+                    <div className="bg-indigo-50 p-2 rounded-xl">
+                      <Target size={24} className="text-indigo-600" />
+                    </div>
+                    Generate PYQ Test
+                  </h2>
+                  <p className="text-sm text-slate-500 mt-2 font-medium ml-11">
+                    Enter a topic to generate a 5-question test based strictly on Previous Year Questions.
+                  </p>
+                </div>
+
+                <div className="space-y-5">
+                  <input
+                    type="text"
+                    value={topic}
+                    onChange={(e) => setTopic(e.target.value)}
+                    placeholder="e.g. Thermodynamics, Indian Polity..."
+                    className="w-full rounded-2xl border border-slate-200 bg-slate-50/50 px-5 py-4 text-[15px] font-medium text-slate-800 placeholder:text-slate-400 focus:border-indigo-400 focus:bg-white focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleGenerateTest();
+                    }}
+                  />
+                  
+                  <div className="flex items-center justify-end">
+                    <button
+                      onClick={handleGenerateTest}
+                      disabled={testLoading || !topic.trim()}
+                      className="inline-flex items-center justify-center gap-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-8 py-3.5 text-sm font-bold text-white shadow-lg shadow-indigo-500/25 hover:from-indigo-500 hover:to-violet-500 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-[1.02] active:scale-[0.98] transition-all"
+                    >
+                      {testLoading ? (
+                        <><Loader2 size={20} className="animate-spin" /> Generating Test...</>
+                      ) : (
+                        <><FileText size={20} /> Start Test</>
+                      )}
+                    </button>
+                  </div>
+                </div>
+                
+                {testError && (
+                  <div className="mt-5 p-4 bg-red-50/80 backdrop-blur border border-red-200 rounded-xl flex items-start gap-3 text-red-700 text-sm font-medium shadow-sm">
+                    <AlertCircle size={18} className="mt-0.5 shrink-0 text-red-500" />
+                    <p>{testError}</p>
+                  </div>
+                )}
+              </div>
+
+              {testQuestions.length > 0 && (
+                <div className="bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-200/60 p-6 md:p-10 relative overflow-hidden">
+                  <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-violet-500"></div>
+                  
+                  <div className="space-y-8">
+                    {testQuestions.map((q, qIndex) => (
+                      <div key={qIndex} className="space-y-4">
+                        <div className="flex gap-3">
+                          <span className="font-bold text-indigo-600 shrink-0">Q{qIndex + 1}.</span>
+                          <h3 className="font-bold text-slate-800 text-lg">{q.question}</h3>
+                        </div>
+                        <div className="text-xs font-bold text-slate-400 uppercase tracking-wider ml-8 bg-slate-50 inline-block px-2 py-1 rounded-md border border-slate-100">
+                          {q.year}
+                        </div>
+                        
+                        <div className="space-y-3 ml-8">
+                          {q.options.map((opt: string, oIndex: number) => {
+                            const isSelected = userAnswers[qIndex] === oIndex;
+                            const isCorrect = q.correctOptionIndex === oIndex;
+                            const showCorrect = testSubmitted && isCorrect;
+                            const showWrong = testSubmitted && isSelected && !isCorrect;
+                            
+                            let btnClass = "w-full text-left px-5 py-4 rounded-xl border-2 transition-all font-medium text-[15px] flex items-center justify-between ";
+                            if (showCorrect) {
+                              btnClass += "border-emerald-500 bg-emerald-50 text-emerald-800";
+                            } else if (showWrong) {
+                              btnClass += "border-red-500 bg-red-50 text-red-800";
+                            } else if (isSelected) {
+                              btnClass += "border-indigo-500 bg-indigo-50 text-indigo-800";
+                            } else {
+                              btnClass += "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50";
+                            }
+
+                            return (
+                              <button
+                                key={oIndex}
+                                disabled={testSubmitted}
+                                onClick={() => setUserAnswers({...userAnswers, [qIndex]: oIndex})}
+                                className={btnClass}
+                              >
+                                <span>{opt}</span>
+                                {showCorrect && <CheckCircle size={20} className="text-emerald-500 shrink-0" />}
+                                {showWrong && <XCircle size={20} className="text-red-500 shrink-0" />}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        
+                        {testSubmitted && (
+                          <div className="ml-8 mt-4 p-5 bg-indigo-50/50 rounded-2xl border border-indigo-100">
+                            <h4 className="font-bold text-indigo-900 mb-2 flex items-center gap-2">
+                              <BookOpen size={16} /> Explanation
+                            </h4>
+                            <p className="text-indigo-800/80 text-sm leading-relaxed">{q.explanation}</p>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {!testSubmitted && (
+                    <div className="mt-10 pt-8 border-t border-slate-100 flex justify-end">
+                      <button
+                        onClick={submitTest}
+                        disabled={Object.keys(userAnswers).length !== testQuestions.length}
+                        className="inline-flex items-center justify-center gap-2.5 rounded-xl bg-slate-900 px-8 py-3.5 text-sm font-bold text-white shadow-lg shadow-slate-900/20 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-[1.02] active:scale-[0.98] transition-all"
+                      >
+                        Submit Test
+                      </button>
+                    </div>
+                  )}
+                  
+                  {testSubmitted && (
+                    <div className="mt-10 pt-8 border-t border-slate-100 flex items-center justify-between">
+                      <div className="text-lg font-bold text-slate-800">
+                        Score: <span className="text-indigo-600">{Object.keys(userAnswers).filter(k => userAnswers[parseInt(k)] === testQuestions[parseInt(k)].correctOptionIndex).length}</span> / {testQuestions.length}
+                      </div>
+                      <button
+                        onClick={() => {
+                          setTestQuestions([]);
+                          setUserAnswers({});
+                          setTestSubmitted(false);
+                          setTopic('');
+                        }}
+                        className="text-sm font-bold text-indigo-600 hover:text-indigo-800"
+                      >
+                        Take Another Test
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        ) : currentView === 'mistakes' ? (
+          <div className="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth">
+            <div className="max-w-4xl mx-auto space-y-8 pb-12">
+              <div className="bg-white/80 backdrop-blur-xl rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-200/60 p-6 md:p-8">
+                <div className="mb-6">
+                  <h2 className="text-xl font-extrabold text-slate-900 flex items-center gap-3">
+                    <div className="bg-red-50 p-2 rounded-xl">
+                      <AlertTriangle size={24} className="text-red-600" />
+                    </div>
+                    Mistake Tracker
+                  </h2>
+                  <p className="text-sm text-slate-500 mt-2 font-medium ml-11">
+                    Review the questions you got wrong in your PYQ tests.
+                  </p>
+                </div>
+
+                {mistakesList.length === 0 ? (
+                  <div className="text-center py-12">
+                    <div className="bg-slate-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <CheckCircle size={32} className="text-emerald-500" />
+                    </div>
+                    <h3 className="text-lg font-bold text-slate-800">No mistakes yet!</h3>
+                    <p className="text-slate-500 mt-2">Take a PYQ test and any questions you get wrong will appear here.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    {mistakesList.map((mistake, idx) => (
+                      <div key={mistake.id} className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm relative group">
+                        <button 
+                          onClick={() => deleteMistake(mistake.id)}
+                          className="absolute top-4 right-4 text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                          title="Remove from tracker"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                        
+                        <div className="flex flex-wrap gap-2 mb-4">
+                          <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded-md">{mistake.exam}</span>
+                          <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded-md">{mistake.subject}</span>
+                          <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded-md">{mistake.topic}</span>
+                        </div>
+                        
+                        <h3 className="font-bold text-slate-800 text-lg mb-4">{mistake.question}</h3>
+                        
+                        <div className="grid md:grid-cols-2 gap-4 mb-4">
+                          <div className="bg-red-50 border border-red-100 p-4 rounded-xl">
+                            <div className="text-xs font-bold text-red-500 uppercase tracking-wider mb-1">Your Answer</div>
+                            <div className="text-red-900 font-medium">{mistake.userAnswer}</div>
+                          </div>
+                          <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-xl">
+                            <div className="text-xs font-bold text-emerald-600 uppercase tracking-wider mb-1">Correct Answer</div>
+                            <div className="text-emerald-900 font-medium">{mistake.correctAnswer}</div>
+                          </div>
+                        </div>
+                        
+                        <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                          <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Explanation</div>
+                          <p className="text-slate-700 text-sm leading-relaxed">{mistake.explanation}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         ) : (
-        <div className="flex-1 overflow-y-auto p-4 md:p-8">
-          <div className="max-w-4xl mx-auto space-y-8">
+        <div className="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth">
+          <div className="max-w-4xl mx-auto space-y-8 pb-12">
             
             {/* Input Section */}
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-              <div className="mb-4">
-                <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
-                  <BookOpen size={20} className="text-indigo-600" />
+            <div className="bg-white/80 backdrop-blur-xl rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-200/60 p-6 md:p-8 transition-all hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)]">
+              <div className="mb-6">
+                <h2 className="text-xl font-extrabold text-slate-900 flex items-center gap-3">
+                  <div className="bg-indigo-50 p-2 rounded-xl">
+                    <BookOpen size={24} className="text-indigo-600" />
+                  </div>
                   What do you want to study today?
                 </h2>
-                <p className="text-sm text-slate-500 mt-1">
+                <p className="text-sm text-slate-500 mt-2 font-medium ml-11">
                   Enter a topic, concept, or specific question to generate comprehensive study material.
                 </p>
               </div>
 
-              <div className="space-y-4">
-                <textarea
-                  value={topic}
-                  onChange={(e) => setTopic(e.target.value)}
-                  placeholder="e.g. Rotational Mechanics, Revolt of 1857, Time and Work..."
-                  className="w-full min-h-[120px] rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 resize-y transition-colors"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                      handleGenerate();
-                    }
-                  }}
-                />
+              <div className="space-y-5">
+                <div className="relative group">
+                  <textarea
+                    value={topic}
+                    onChange={(e) => setTopic(e.target.value)}
+                    placeholder="e.g. Rotational Mechanics, Revolt of 1857, Time and Work..."
+                    className="w-full min-h-[140px] rounded-2xl border border-slate-200 bg-slate-50/50 px-5 py-4 text-[15px] leading-relaxed text-slate-800 placeholder:text-slate-400 focus:border-indigo-400 focus:bg-white focus:outline-none focus:ring-4 focus:ring-indigo-500/10 resize-y transition-all group-hover:border-indigo-200"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                        handleGenerate();
+                      }
+                    }}
+                  />
+                  <div className="absolute bottom-4 right-4 text-xs font-semibold text-slate-400 bg-white/80 backdrop-blur px-2 py-1 rounded-md border border-slate-100 pointer-events-none hidden sm:block">
+                    Cmd/Ctrl + Enter
+                  </div>
+                </div>
                 
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-slate-400 font-medium">
-                    Press <kbd className="font-sans px-1.5 py-0.5 bg-slate-100 border border-slate-200 rounded-md">Cmd/Ctrl + Enter</kbd> to generate
-                  </span>
+                <div className="flex items-center justify-end">
                   <button
                     onClick={handleGenerate}
                     disabled={loading || !topic.trim()}
-                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                    className="inline-flex items-center justify-center gap-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-8 py-3.5 text-sm font-bold text-white shadow-lg shadow-indigo-500/25 hover:from-indigo-500 hover:to-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-[1.02] active:scale-[0.98] transition-all"
                   >
                     {loading ? (
                       <>
-                        <Loader2 size={18} className="animate-spin" />
+                        <Loader2 size={20} className="animate-spin" />
                         Generating...
                       </>
                     ) : (
                       <>
-                        <Send size={18} />
+                        <Send size={20} />
                         Generate Material
                       </>
                     )}
@@ -611,8 +1009,8 @@ export default function App() {
               </div>
               
               {error && (
-                <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2 text-red-700 text-sm">
-                  <AlertCircle size={16} className="mt-0.5 shrink-0" />
+                <div className="mt-5 p-4 bg-red-50/80 backdrop-blur border border-red-200 rounded-xl flex items-start gap-3 text-red-700 text-sm font-medium shadow-sm">
+                  <AlertCircle size={18} className="mt-0.5 shrink-0 text-red-500" />
                   <p>{error}</p>
                 </div>
               )}
@@ -620,9 +1018,12 @@ export default function App() {
 
             {/* Output Section */}
             {(result || loading) && (
-              <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 md:p-8 min-h-[400px]">
+              <div className="bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-200/60 p-6 md:p-10 min-h-[400px] relative overflow-hidden">
+                {/* Decorative top gradient */}
+                <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-violet-500"></div>
+                
                 {result ? (
-                  <div className="prose prose-slate prose-indigo max-w-none prose-headings:font-semibold prose-h1:text-2xl prose-h2:text-xl prose-h3:text-lg prose-a:text-indigo-600 prose-code:text-indigo-600 prose-code:bg-indigo-50 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:before:content-none prose-code:after:content-none">
+                  <div className="prose prose-slate prose-indigo max-w-none prose-headings:font-bold prose-h1:text-3xl prose-h1:tracking-tight prose-h2:text-2xl prose-h2:tracking-tight prose-h3:text-xl prose-a:text-indigo-600 prose-a:font-semibold prose-code:text-indigo-700 prose-code:bg-indigo-50/80 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:font-semibold prose-code:before:content-none prose-code:after:content-none prose-pre:bg-slate-900 prose-pre:shadow-lg prose-pre:rounded-2xl prose-li:marker:text-indigo-500">
                     <Markdown
                       components={{
                         code({node, inline, className, children, ...props}: any) {
@@ -638,9 +1039,12 @@ export default function App() {
                     </Markdown>
                   </div>
                 ) : (
-                  <div className="h-full flex flex-col items-center justify-center text-slate-400 space-y-4 py-20">
-                    <Loader2 size={40} className="animate-spin text-indigo-600" />
-                    <p className="text-sm font-medium animate-pulse">Analyzing syllabus and generating content...</p>
+                  <div className="h-full flex flex-col items-center justify-center text-slate-400 space-y-5 py-24">
+                    <div className="relative">
+                      <div className="absolute inset-0 bg-indigo-500/20 blur-xl rounded-full animate-pulse"></div>
+                      <Loader2 size={48} className="animate-spin text-indigo-600 relative z-10" />
+                    </div>
+                    <p className="text-sm font-bold tracking-wide text-slate-500 animate-pulse">Analyzing syllabus and generating content...</p>
                   </div>
                 )}
               </div>
@@ -651,79 +1055,79 @@ export default function App() {
         )}
 
         {/* Global Footer */}
-        <footer className="py-3 px-4 text-center text-xs text-slate-400 border-t border-slate-200 bg-slate-50 shrink-0 z-10">
+        <footer className="py-4 px-6 text-center text-xs font-medium text-slate-400 border-t border-slate-200/60 bg-white/50 backdrop-blur shrink-0 z-10">
           <p>Exam Sarthi AI can make mistakes. Please verify important information with official sources.</p>
-          <p className="mt-0.5">Built by <span className="font-semibold text-slate-600">RUTVIK</span></p>
+          <p className="mt-1">Built by <span className="font-bold text-slate-700">RUTVIK</span></p>
         </footer>
       </main>
 
       {/* Login Modal */}
       {showLoginModal && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
-            <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-              <h3 className="text-lg font-bold text-slate-900">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-50 flex items-center justify-center p-4 transition-opacity">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden transform transition-all scale-100">
+            <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <h3 className="text-xl font-extrabold text-slate-900 tracking-tight">
                 {isSignUp ? 'Create an account' : 'Sign in to Exam Sarthi AI'}
               </h3>
-              <button onClick={() => setShowLoginModal(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
+              <button onClick={() => setShowLoginModal(false)} className="text-slate-400 hover:text-slate-700 bg-white p-2 rounded-full shadow-sm border border-slate-100 transition-all hover:scale-105">
                 <X size={20} />
               </button>
             </div>
-            <div className="p-6">
+            <div className="p-8">
               <p className="text-sm text-slate-500 mb-6">
                 {generationCount >= 2 
                   ? "You've reached your free limit of 2 generations. Please sign in or create an account to continue generating unlimited study materials."
                   : "Sign in or create an account to save your progress and get unlimited generations."}
               </p>
-              <form onSubmit={handleLogin} className="space-y-4">
+              <form onSubmit={handleLogin} className="space-y-5">
                 {isSignUp && (
-                  <div className="space-y-1.5">
-                    <label className="text-sm font-medium text-slate-700">Full Name</label>
+                  <div className="space-y-2">
+                    <label className="text-sm font-bold text-slate-700">Full Name</label>
                     <input
                       type="text"
                       required
                       value={name}
                       onChange={(e) => setName(e.target.value)}
-                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-3 text-sm focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all"
                       placeholder="John Doe"
                     />
                   </div>
                 )}
-                <div className="space-y-1.5">
-                  <label className="text-sm font-medium text-slate-700">Email address</label>
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-slate-700">Email Address</label>
                   <input
                     type="email"
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-3 text-sm focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all"
                     placeholder="you@example.com"
                   />
                 </div>
-                <div className="space-y-1.5">
-                  <label className="text-sm font-medium text-slate-700">Password</label>
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-slate-700">Password</label>
                   <input
                     type="password"
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-3 text-sm focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all"
                     placeholder="••••••••"
                   />
                 </div>
                 <button
                   type="submit"
-                  className="w-full mt-2 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 transition-all"
+                  className="w-full mt-4 flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-4 py-3.5 text-sm font-bold text-white shadow-lg shadow-indigo-500/25 hover:from-indigo-500 hover:to-violet-500 hover:scale-[1.02] active:scale-[0.98] transition-all"
                 >
-                  <Lock size={16} />
+                  <Lock size={18} />
                   {isSignUp ? 'Create Account' : 'Sign In'}
                 </button>
                 
-                <div className="text-center mt-4 pt-2">
+                <div className="text-center mt-6 pt-4 border-t border-slate-100">
                   <button
                     type="button"
                     onClick={() => setIsSignUp(!isSignUp)}
-                    className="text-sm text-indigo-600 hover:text-indigo-700 font-medium transition-colors"
+                    className="text-sm text-indigo-600 hover:text-indigo-800 font-bold transition-colors"
                   >
                     {isSignUp ? 'Already have an account? Sign in' : "Don't have an account? Sign up"}
                   </button>
