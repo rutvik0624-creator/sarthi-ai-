@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI, Type } from '@google/genai';
 import Markdown from 'react-markdown';
-import { BookOpen, GraduationCap, BrainCircuit, Loader2, Send, Settings2, AlertCircle, User, LogOut, X, Lock, LayoutDashboard, Users, Activity, BarChart3, Menu, FileText, Target, AlertTriangle, CheckCircle, XCircle, Trash2 } from 'lucide-react';
+import { BookOpen, GraduationCap, BrainCircuit, Loader2, Send, Settings2, AlertCircle, User, LogOut, X, Lock, LayoutDashboard, Users, Activity, BarChart3, Menu, FileText, Target, AlertTriangle, CheckCircle, XCircle, Trash2, Calendar, Sparkles, Layers, Newspaper, MessageCircle, ListChecks, Image as ImageIcon, ChevronRight, ChevronLeft, RotateCcw, Copy } from 'lucide-react';
 import mermaid from 'mermaid';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
@@ -327,7 +327,7 @@ export default function App() {
   const [loggedInUser, setLoggedInUser] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
   const [userRole, setUserRole] = useState('');
-  const [currentView, setCurrentView] = useState<'main' | 'admin' | 'test' | 'mistakes'>('main');
+  const [currentView, setCurrentView] = useState<'main' | 'admin' | 'test' | 'mistakes' | 'planner' | 'quiz' | 'syllabus' | 'doubts'>('main');
 
   // Test & Mistakes state
   const [testQuestions, setTestQuestions] = useState<any[]>([]);
@@ -336,6 +336,42 @@ export default function App() {
   const [testLoading, setTestLoading] = useState(false);
   const [testError, setTestError] = useState('');
   const [mistakesList, setMistakesList] = useState<any[]>([]);
+
+  // Planner state
+  const [plannerLoading, setPlannerLoading] = useState(false);
+  const [plannerResult, setPlannerResult] = useState('');
+  const [plannerDays, setPlannerDays] = useState('30');
+  const [plannerHours, setPlannerHours] = useState('6');
+
+  // Quiz state
+  const [quizLoading, setQuizLoading] = useState(false);
+  const [quizQuestions, setQuizQuestions] = useState<any[]>([]);
+  const [quizAnswers, setQuizAnswers] = useState<Record<number, number>>({});
+  const [quizSubmitted, setQuizSubmitted] = useState(false);
+
+  // ELI5 state
+  const [eli5Loading, setEli5Loading] = useState(false);
+  const [isEli5Mode, setIsEli5Mode] = useState(false);
+  const [eli5Result, setEli5Result] = useState('');
+
+  // Flashcards state
+  const [flashcardsLoading, setFlashcardsLoading] = useState(false);
+  const [flashcards, setFlashcards] = useState<any[]>([]);
+  const [showFlashcards, setShowFlashcards] = useState(false);
+  const [currentCardIndex, setCurrentCardIndex] = useState(0);
+  const [isFlipped, setIsFlipped] = useState(false);
+
+  // Syllabus state
+  const [syllabusLoading, setSyllabusLoading] = useState(false);
+  const [syllabusData, setSyllabusData] = useState<any[]>([]);
+  const [completedTopics, setCompletedTopics] = useState<string[]>([]);
+
+  // Doubt Solver state
+  const [chatMessages, setChatMessages] = useState<any[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatImage, setChatImage] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (currentView === 'mistakes') {
@@ -449,7 +485,10 @@ export default function App() {
 
     try {
       if (!ai) throw new Error("AI not initialized");
-      const prompt = `Generate 5 Previous Year Questions (PYQs) for Exam: ${exam}, Subject: ${subject || 'Not specified'}, Topic: ${topic}. Return ONLY a valid JSON array of objects. Each object must have: 'question' (string), 'options' (array of 4 strings), 'correctOptionIndex' (number 0-3), 'explanation' (string), 'year' (string).`;
+      const prompt = `Generate ALL available Previous Year Questions (PYQs) for the topic "${topic}" in the ${exam} exam. 
+      Subject: ${subject || 'Not specified'}. Difficulty: ${difficulty}.
+      Do not limit to 5 questions. Provide as many real PYQs as you can find for this topic (aim for 10-25 questions if available).
+      Return ONLY a valid JSON array of objects. Each object must have: 'question' (string), 'options' (array of 4 strings), 'correctOptionIndex' (number 0-3), 'explanation' (string), 'year' (string - e.g. "JEE 2019").`;
 
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
@@ -530,6 +569,302 @@ export default function App() {
     setMistakesList(updated);
   };
 
+  const handleGeneratePlanner = async () => {
+    if (!isLoggedIn && generationCount >= 2) {
+      setShowLoginModal(true);
+      return;
+    }
+
+    if (!topic.trim()) {
+      setError('Please enter subjects or topics to plan.');
+      return;
+    }
+    
+    setError('');
+    setPlannerLoading(true);
+    setPlannerResult('');
+
+    try {
+      if (!ai) throw new Error("AI not initialized");
+      const prompt = `Create a detailed, realistic ${plannerDays}-day study timetable for ${exam}. 
+      Subjects/Topics to cover: ${topic}. 
+      Daily study hours available: ${plannerHours} hours.
+      
+      Format the output as a clean Markdown table with columns: Day, Subject, Topic, Hours, and Revision Strategy.
+      Include a brief summary of the strategy at the end.`;
+
+      const response = await ai.models.generateContentStream({
+        model: 'gemini-3-flash-preview',
+        contents: prompt,
+        config: {
+          systemInstruction: "You are an expert exam strategist and study planner. Provide realistic, actionable, and highly structured study plans.",
+          temperature: 0.3,
+        },
+      });
+
+      let fullText = '';
+      for await (const chunk of response) {
+        if (chunk.text) {
+          fullText += chunk.text;
+          setPlannerResult(fullText);
+        }
+      }
+      
+      if (!isLoggedIn) {
+        setGenerationCount(prev => prev + 1);
+      }
+      
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || 'An error occurred while generating the planner.');
+    } finally {
+      setPlannerLoading(false);
+    }
+  };
+
+  const handleGenerateQuiz = async () => {
+    setTestError('');
+    setQuizLoading(true);
+    setQuizQuestions([]);
+    setQuizAnswers({});
+    setQuizSubmitted(false);
+
+    try {
+      if (!ai) throw new Error("AI not initialized");
+      const prompt = `Generate 5 Daily Current Affairs Multiple Choice Questions relevant for ${exam}. 
+      Focus on the most important news from the last 30 days.
+      Return ONLY a valid JSON array of objects. Each object must have: 'question' (string), 'options' (array of 4 strings), 'correctOptionIndex' (number 0-3), 'explanation' (string), 'year' (string - use "Current Affairs").`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                question: { type: Type.STRING },
+                options: { type: Type.ARRAY, items: { type: Type.STRING } },
+                correctOptionIndex: { type: Type.INTEGER },
+                explanation: { type: Type.STRING },
+                year: { type: Type.STRING }
+              },
+              required: ['question', 'options', 'correctOptionIndex', 'explanation', 'year']
+            }
+          }
+        },
+      });
+
+      const data = JSON.parse(response.text || '[]');
+      setQuizQuestions(data);
+      
+    } catch (err: any) {
+      console.error(err);
+      setTestError(err.message || 'An error occurred while generating the quiz.');
+    } finally {
+      setQuizLoading(false);
+    }
+  };
+
+  const submitQuiz = () => {
+    setQuizSubmitted(true);
+  };
+
+  const handleELI5 = async () => {
+    if (isEli5Mode) {
+      setIsEli5Mode(false);
+      return;
+    }
+
+    if (eli5Result) {
+      setIsEli5Mode(true);
+      return;
+    }
+
+    setEli5Loading(true);
+    setEli5Result('');
+
+    try {
+      if (!ai) throw new Error("AI not initialized");
+      const prompt = `Simplify the following study material so a 5-year-old can understand it. Use real-world, everyday analogies. Keep it engaging and easy to digest.\n\nOriginal Material:\n${result}`;
+
+      const response = await ai.models.generateContentStream({
+        model: 'gemini-3-flash-preview',
+        contents: prompt,
+        config: {
+          systemInstruction: "You are a friendly, enthusiastic teacher who explains complex concepts using simple, everyday analogies.",
+          temperature: 0.7,
+        },
+      });
+
+      let fullText = '';
+      for await (const chunk of response) {
+        if (chunk.text) {
+          fullText += chunk.text;
+          setEli5Result(fullText);
+        }
+      }
+      setIsEli5Mode(true);
+      
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || 'An error occurred while generating ELI5 explanation.');
+    } finally {
+      setEli5Loading(false);
+    }
+  };
+
+  const handleGenerateFlashcards = async () => {
+    setFlashcardsLoading(true);
+    try {
+      if (!ai) throw new Error("AI not initialized");
+      const prompt = `Extract the most important key concepts, formulas, and facts from the following study material and convert them into flashcards.
+      Return ONLY a valid JSON array of objects. Each object must have: 'front' (the question, concept name, or formula name) and 'back' (the answer, definition, or formula).
+      Limit to the 15 most important flashcards.
+      
+      Material:
+      ${result}`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                front: { type: Type.STRING },
+                back: { type: Type.STRING }
+              },
+              required: ['front', 'back']
+            }
+          }
+        },
+      });
+
+      const data = JSON.parse(response.text || '[]');
+      setFlashcards(data);
+      setCurrentCardIndex(0);
+      setIsFlipped(false);
+      setShowFlashcards(true);
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || 'Failed to generate flashcards.');
+    } finally {
+      setFlashcardsLoading(false);
+    }
+  };
+
+  const handleGenerateSyllabus = async () => {
+    setSyllabusLoading(true);
+    try {
+      if (!ai) throw new Error("AI not initialized");
+      const prompt = `Generate the official, detailed syllabus for the ${exam} exam.
+      Return ONLY a valid JSON array of objects representing the main subjects. 
+      Each subject object must have: 'subject' (string) and 'topics' (array of strings).`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                subject: { type: Type.STRING },
+                topics: { type: Type.ARRAY, items: { type: Type.STRING } }
+              },
+              required: ['subject', 'topics']
+            }
+          }
+        },
+      });
+
+      const data = JSON.parse(response.text || '[]');
+      setSyllabusData(data);
+      localStorage.setItem(`examprep_syllabus_${exam}`, JSON.stringify(data));
+    } catch (err: any) {
+      console.error(err);
+    } finally {
+      setSyllabusLoading(false);
+    }
+  };
+
+  const toggleTopicCompletion = (topicName: string) => {
+    setCompletedTopics(prev => {
+      const updated = prev.includes(topicName) 
+        ? prev.filter(t => t !== topicName)
+        : [...prev, topicName];
+      localStorage.setItem('examprep_completed_topics', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  useEffect(() => {
+    if (currentView === 'syllabus') {
+      const savedSyllabus = getSafeJSON(`examprep_syllabus_${exam}`, []);
+      setSyllabusData(savedSyllabus);
+      const savedCompleted = getSafeJSON('examprep_completed_topics', []);
+      setCompletedTopics(savedCompleted);
+    }
+  }, [currentView, exam]);
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setChatImage(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleSendMessage = async () => {
+    if (!chatInput.trim() && !chatImage) return;
+    
+    const newUserMsg = { role: 'user', text: chatInput, image: chatImage };
+    setChatMessages(prev => [...prev, newUserMsg]);
+    setChatInput('');
+    setChatImage(null);
+    setChatLoading(true);
+
+    try {
+      if (!ai) throw new Error("AI not initialized");
+      
+      const parts: any[] = [];
+      if (chatImage) {
+        const base64Data = chatImage.split(',')[1];
+        const mimeType = chatImage.split(';')[0].split(':')[1];
+        parts.push({ inlineData: { data: base64Data, mimeType } });
+      }
+      if (chatInput.trim()) {
+        parts.push({ text: chatInput });
+      }
+
+      const contextText = chatMessages.map(m => `${m.role}: ${m.text}`).join('\n');
+      parts.push({ text: `\n\nPrevious context:\n${contextText}\n\nYou are a helpful, expert Doubt Solver for competitive exams. Answer the student's doubt clearly and concisely.` });
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: { parts },
+      });
+
+      setChatMessages(prev => [...prev, { role: 'model', text: response.text }]);
+    } catch (err: any) {
+      console.error(err);
+      setChatMessages(prev => [...prev, { role: 'model', text: 'Sorry, I encountered an error processing your doubt.' }]);
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
   return (
     <div className="h-screen bg-[#F8FAFC] text-slate-900 flex overflow-hidden font-sans relative selection:bg-indigo-100 selection:text-indigo-900">
       {/* Background Pattern */}
@@ -588,6 +923,34 @@ export default function App() {
             >
               <AlertTriangle size={18} />
               Mistake Tracker
+            </button>
+            <button 
+              onClick={() => setCurrentView('planner')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${currentView === 'planner' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'}`}
+            >
+              <Calendar size={18} />
+              Study Planner
+            </button>
+            <button 
+              onClick={() => setCurrentView('quiz')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${currentView === 'quiz' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'}`}
+            >
+              <Newspaper size={18} />
+              Daily Quiz
+            </button>
+            <button 
+              onClick={() => setCurrentView('syllabus')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${currentView === 'syllabus' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'}`}
+            >
+              <ListChecks size={18} />
+              Syllabus Tracker
+            </button>
+            <button 
+              onClick={() => setCurrentView('doubts')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${currentView === 'doubts' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'}`}
+            >
+              <MessageCircle size={18} />
+              Doubt Solver
             </button>
           </div>
 
@@ -951,6 +1314,415 @@ export default function App() {
               </div>
             </div>
           </div>
+        ) : currentView === 'planner' ? (
+          <div className="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth">
+            <div className="max-w-4xl mx-auto space-y-8 pb-12">
+              <div className="bg-white/80 backdrop-blur-xl rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-200/60 p-6 md:p-8">
+                <div className="mb-6">
+                  <h2 className="text-xl font-extrabold text-slate-900 flex items-center gap-3">
+                    <div className="bg-blue-50 p-2 rounded-xl">
+                      <Calendar size={24} className="text-blue-600" />
+                    </div>
+                    Study Planner
+                  </h2>
+                  <p className="text-sm text-slate-500 mt-2 font-medium ml-11">
+                    Generate a realistic, day-by-day study timetable.
+                  </p>
+                </div>
+
+                <div className="grid md:grid-cols-2 gap-6 mb-6">
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-700">Duration (Days)</label>
+                    <input
+                      type="number"
+                      value={plannerDays}
+                      onChange={(e) => setPlannerDays(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200/80 bg-slate-50/50 px-4 py-2.5 text-sm font-medium text-slate-700 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-indigo-500/10"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-700">Daily Study Hours</label>
+                    <input
+                      type="number"
+                      value={plannerHours}
+                      onChange={(e) => setPlannerHours(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200/80 bg-slate-50/50 px-4 py-2.5 text-sm font-medium text-slate-700 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-indigo-500/10"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2 mb-6">
+                  <label className="text-sm font-semibold text-slate-700">Subjects or Topics to Cover</label>
+                  <textarea
+                    value={topic}
+                    onChange={(e) => setTopic(e.target.value)}
+                    placeholder="e.g. Complete Physics syllabus, Modern History, Quantitative Aptitude..."
+                    className="w-full min-h-[100px] rounded-2xl border border-slate-200 bg-slate-50/50 px-5 py-4 text-[15px] leading-relaxed text-slate-800 placeholder:text-slate-400 focus:border-indigo-400 focus:bg-white focus:outline-none focus:ring-4 focus:ring-indigo-500/10 resize-y"
+                  />
+                </div>
+
+                <button
+                  onClick={handleGeneratePlanner}
+                  disabled={plannerLoading}
+                  className="w-full sm:w-auto flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3.5 rounded-xl font-bold transition-all disabled:opacity-70 disabled:cursor-not-allowed shadow-sm hover:shadow-md hover:-translate-y-0.5"
+                >
+                  {plannerLoading ? (
+                    <>
+                      <Loader2 className="animate-spin" size={18} />
+                      Generating Plan...
+                    </>
+                  ) : (
+                    <>
+                      <Calendar size={18} />
+                      Generate Timetable
+                    </>
+                  )}
+                </button>
+
+                {error && (
+                  <div className="mt-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl flex items-center gap-3 text-sm font-medium">
+                    <AlertCircle size={18} className="shrink-0" />
+                    <p>{error}</p>
+                  </div>
+                )}
+              </div>
+
+              {plannerResult && (
+                <div className="bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-200/60 p-6 md:p-10 relative overflow-hidden">
+                  <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-500 via-indigo-500 to-violet-500"></div>
+                  <div className="prose prose-slate max-w-none prose-headings:font-bold prose-h1:text-3xl prose-h2:text-2xl prose-h3:text-xl prose-p:text-slate-700 prose-p:leading-relaxed prose-a:text-indigo-600 prose-strong:text-slate-900 prose-ul:list-disc prose-ol:list-decimal prose-li:marker:text-slate-400 prose-table:w-full prose-th:bg-slate-50 prose-th:p-3 prose-th:text-left prose-th:font-bold prose-th:text-slate-700 prose-td:p-3 prose-td:border-t prose-td:border-slate-200">
+                    <Markdown>{plannerResult}</Markdown>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : currentView === 'quiz' ? (
+          <div className="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth">
+            <div className="max-w-4xl mx-auto space-y-8 pb-12">
+              <div className="bg-white/80 backdrop-blur-xl rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-200/60 p-6 md:p-8">
+                <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <h2 className="text-xl font-extrabold text-slate-900 flex items-center gap-3">
+                      <div className="bg-emerald-50 p-2 rounded-xl">
+                        <Newspaper size={24} className="text-emerald-600" />
+                      </div>
+                      Daily Current Affairs Quiz
+                    </h2>
+                    <p className="text-sm text-slate-500 mt-2 font-medium ml-11">
+                      Test your knowledge of recent events relevant to {exam}.
+                    </p>
+                  </div>
+                  
+                  <button
+                    onClick={handleGenerateQuiz}
+                    disabled={quizLoading}
+                    className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-xl font-bold transition-all disabled:opacity-70 disabled:cursor-not-allowed shadow-sm hover:shadow-md hover:-translate-y-0.5"
+                  >
+                    {quizLoading ? (
+                      <>
+                        <Loader2 className="animate-spin" size={18} />
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles size={18} />
+                        Generate New Quiz
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {testError && (
+                  <div className="mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl flex items-center gap-3 text-sm font-medium">
+                    <AlertCircle size={18} className="shrink-0" />
+                    <p>{testError}</p>
+                  </div>
+                )}
+
+                {quizQuestions.length > 0 && (
+                  <div className="space-y-8 mt-8">
+                    {quizQuestions.map((q, qIndex) => (
+                      <div key={qIndex} className="bg-slate-50 rounded-2xl p-6 border border-slate-200/60">
+                        <div className="flex justify-between items-start mb-4">
+                          <h3 className="text-lg font-bold text-slate-800">
+                            <span className="text-emerald-600 mr-2">Q{qIndex + 1}.</span>
+                            {q.question}
+                          </h3>
+                        </div>
+                        
+                        <div className="space-y-3">
+                          {q.options.map((opt: string, oIndex: number) => {
+                            const isSelected = quizAnswers[qIndex] === oIndex;
+                            const isCorrect = q.correctOptionIndex === oIndex;
+                            const showCorrect = quizSubmitted && isCorrect;
+                            const showWrong = quizSubmitted && isSelected && !isCorrect;
+                            
+                            let btnClass = "w-full text-left px-5 py-4 rounded-xl border-2 transition-all font-medium flex items-center justify-between ";
+                            
+                            if (showCorrect) {
+                              btnClass += "border-emerald-500 bg-emerald-50 text-emerald-800";
+                            } else if (showWrong) {
+                              btnClass += "border-red-500 bg-red-50 text-red-800";
+                            } else if (isSelected) {
+                              btnClass += "border-emerald-500 bg-white text-emerald-700 shadow-sm";
+                            } else {
+                              btnClass += "border-slate-200 bg-white text-slate-600 hover:border-emerald-200 hover:bg-emerald-50/30";
+                            }
+
+                            return (
+                              <button
+                                key={oIndex}
+                                onClick={() => !quizSubmitted && setQuizAnswers(prev => ({ ...prev, [qIndex]: oIndex }))}
+                                disabled={quizSubmitted}
+                                className={btnClass}
+                              >
+                                <span>{String.fromCharCode(65 + oIndex)}. {opt}</span>
+                                {showCorrect && <CheckCircle size={20} className="text-emerald-500" />}
+                                {showWrong && <XCircle size={20} className="text-red-500" />}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        
+                        {quizSubmitted && (
+                          <div className="mt-6 bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                            <div className="flex items-center gap-2 text-sm font-bold text-emerald-600 uppercase tracking-wider mb-2">
+                              <BookOpen size={16} />
+                              Explanation
+                            </div>
+                            <p className="text-slate-700 leading-relaxed text-sm">{q.explanation}</p>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    
+                    {!quizSubmitted && Object.keys(quizAnswers).length === quizQuestions.length && (
+                      <div className="flex justify-center pt-4">
+                        <button
+                          onClick={submitQuiz}
+                          className="bg-slate-900 hover:bg-slate-800 text-white px-10 py-4 rounded-xl font-bold text-lg transition-all shadow-lg hover:shadow-xl hover:-translate-y-1 flex items-center gap-2"
+                        >
+                          <Target size={20} />
+                          Submit Quiz
+                        </button>
+                      </div>
+                    )}
+                    
+                    {quizSubmitted && (
+                      <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-8 text-center">
+                        <h3 className="text-2xl font-black text-emerald-800 mb-2">Quiz Completed!</h3>
+                        <p className="text-emerald-600 font-medium mb-6">
+                          You scored {quizQuestions.filter((q, i) => quizAnswers[i] === q.correctOptionIndex).length} out of {quizQuestions.length}
+                        </p>
+                        <button
+                          onClick={handleGenerateQuiz}
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-3 rounded-xl font-bold transition-all shadow-sm hover:shadow-md"
+                        >
+                          Try Another Quiz
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : currentView === 'syllabus' ? (
+          <div className="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth">
+            <div className="max-w-4xl mx-auto space-y-8 pb-12">
+              <div className="bg-white/80 backdrop-blur-xl rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-200/60 p-6 md:p-8">
+                <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <h2 className="text-xl font-extrabold text-slate-900 flex items-center gap-3">
+                      <div className="bg-purple-50 p-2 rounded-xl">
+                        <ListChecks size={24} className="text-purple-600" />
+                      </div>
+                      Syllabus Tracker
+                    </h2>
+                    <p className="text-sm text-slate-500 mt-2 font-medium ml-11">
+                      Track your progress for the {exam} exam.
+                    </p>
+                  </div>
+                  
+                  <button
+                    onClick={handleGenerateSyllabus}
+                    disabled={syllabusLoading}
+                    className="flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-xl font-bold transition-all disabled:opacity-70 disabled:cursor-not-allowed shadow-sm hover:shadow-md hover:-translate-y-0.5"
+                  >
+                    {syllabusLoading ? (
+                      <>
+                        <Loader2 className="animate-spin" size={18} />
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles size={18} />
+                        {syllabusData.length > 0 ? 'Regenerate Syllabus' : 'Generate Syllabus'}
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {syllabusData.length > 0 ? (
+                  <div className="space-y-6 mt-8">
+                    {syllabusData.map((subjectData, sIndex) => {
+                      const subjectTopics = subjectData.topics || [];
+                      const completedCount = subjectTopics.filter((t: string) => completedTopics.includes(`${subjectData.subject}-${t}`)).length;
+                      const progress = subjectTopics.length > 0 ? Math.round((completedCount / subjectTopics.length) * 100) : 0;
+
+                      return (
+                        <div key={sIndex} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+                          <div className="bg-slate-50 p-5 border-b border-slate-200 flex items-center justify-between">
+                            <h3 className="font-bold text-slate-800 text-lg">{subjectData.subject}</h3>
+                            <div className="flex items-center gap-3">
+                              <span className="text-sm font-semibold text-slate-500">{progress}%</span>
+                              <div className="w-24 h-2.5 bg-slate-200 rounded-full overflow-hidden">
+                                <div className="h-full bg-purple-500 transition-all duration-500" style={{ width: `${progress}%` }}></div>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="p-5">
+                            <ul className="space-y-3">
+                              {subjectTopics.map((topicName: string, tIndex: number) => {
+                                const topicId = `${subjectData.subject}-${topicName}`;
+                                const isCompleted = completedTopics.includes(topicId);
+                                return (
+                                  <li key={tIndex} className="flex items-start gap-3">
+                                    <button
+                                      onClick={() => toggleTopicCompletion(topicId)}
+                                      className={`mt-0.5 shrink-0 w-5 h-5 rounded border flex items-center justify-center transition-colors ${isCompleted ? 'bg-purple-500 border-purple-500 text-white' : 'border-slate-300 hover:border-purple-400'}`}
+                                    >
+                                      {isCompleted && <CheckCircle size={14} />}
+                                    </button>
+                                    <span className={`text-sm ${isCompleted ? 'text-slate-400 line-through' : 'text-slate-700 font-medium'}`}>
+                                      {topicName}
+                                    </span>
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  !syllabusLoading && (
+                    <div className="text-center py-12 bg-slate-50 rounded-2xl border border-slate-100 mt-6">
+                      <ListChecks size={48} className="mx-auto text-slate-300 mb-4" />
+                      <h3 className="text-lg font-bold text-slate-700">No Syllabus Generated</h3>
+                      <p className="text-slate-500 mt-2 max-w-md mx-auto">Click the button above to generate a detailed syllabus checklist for {exam}.</p>
+                    </div>
+                  )
+                )}
+              </div>
+            </div>
+          </div>
+        ) : currentView === 'doubts' ? (
+          <div className="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth flex flex-col h-full">
+            <div className="max-w-4xl mx-auto w-full flex-1 flex flex-col bg-white/80 backdrop-blur-xl rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-200/60 overflow-hidden">
+              <div className="p-6 border-b border-slate-100 bg-white/50">
+                <h2 className="text-xl font-extrabold text-slate-900 flex items-center gap-3">
+                  <div className="bg-orange-50 p-2 rounded-xl">
+                    <MessageCircle size={24} className="text-orange-600" />
+                  </div>
+                  Doubt Solver
+                </h2>
+                <p className="text-sm text-slate-500 mt-2 font-medium ml-11">
+                  Ask questions or upload a photo of a problem you're stuck on.
+                </p>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-50/50">
+                {chatMessages.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-center opacity-60">
+                    <MessageCircle size={48} className="text-slate-300 mb-4" />
+                    <p className="text-slate-500 font-medium">How can I help you today?</p>
+                    <p className="text-sm text-slate-400 mt-1">Upload a photo or type your question below.</p>
+                  </div>
+                ) : (
+                  chatMessages.map((msg, idx) => (
+                    <div key={idx} className={`flex gap-4 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${msg.role === 'user' ? 'bg-indigo-100 text-indigo-600' : 'bg-orange-100 text-orange-600'}`}>
+                        {msg.role === 'user' ? <User size={16} /> : <BrainCircuit size={16} />}
+                      </div>
+                      <div className={`max-w-[80%] rounded-2xl p-4 ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-sm' : 'bg-white border border-slate-200 text-slate-800 rounded-tl-sm shadow-sm'}`}>
+                        {msg.image && (
+                          <img src={msg.image} alt="Uploaded doubt" className="max-w-full rounded-lg mb-3 border border-slate-200/50" />
+                        )}
+                        {msg.text && (
+                          <div className={msg.role === 'model' ? 'prose prose-sm max-w-none prose-p:leading-relaxed' : 'whitespace-pre-wrap'}>
+                            {msg.role === 'model' ? <Markdown>{msg.text}</Markdown> : msg.text}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+                {chatLoading && (
+                  <div className="flex gap-4">
+                    <div className="w-8 h-8 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center shrink-0">
+                      <BrainCircuit size={16} />
+                    </div>
+                    <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-sm p-4 shadow-sm flex items-center gap-2">
+                      <Loader2 size={16} className="animate-spin text-orange-500" />
+                      <span className="text-sm text-slate-500 font-medium">Thinking...</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="p-4 bg-white border-t border-slate-100">
+                {chatImage && (
+                  <div className="mb-3 relative inline-block">
+                    <img src={chatImage} alt="Preview" className="h-20 rounded-lg border border-slate-200" />
+                    <button 
+                      onClick={() => setChatImage(null)}
+                      className="absolute -top-2 -right-2 bg-slate-800 text-white rounded-full p-1 hover:bg-red-500 transition-colors"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                )}
+                <div className="flex items-end gap-2 relative">
+                  <input 
+                    type="file" 
+                    accept="image/*" 
+                    className="hidden" 
+                    ref={fileInputRef}
+                    onChange={handleImageUpload}
+                  />
+                  <button 
+                    onClick={() => fileInputRef.current?.click()}
+                    className="p-3.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-colors shrink-0"
+                    title="Upload Image"
+                  >
+                    <ImageIcon size={20} />
+                  </button>
+                  <textarea
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    placeholder="Type your doubt here..."
+                    className="w-full max-h-32 min-h-[52px] rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-3.5 text-sm leading-relaxed text-slate-800 placeholder:text-slate-400 focus:border-indigo-400 focus:bg-white focus:outline-none focus:ring-4 focus:ring-indigo-500/10 resize-y"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSendMessage();
+                      }
+                    }}
+                  />
+                  <button
+                    onClick={handleSendMessage}
+                    disabled={chatLoading || (!chatInput.trim() && !chatImage)}
+                    className="p-3.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                  >
+                    <Send size={20} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         ) : (
         <div className="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth">
           <div className="max-w-4xl mx-auto space-y-8 pb-12">
@@ -1022,8 +1794,52 @@ export default function App() {
                 {/* Decorative top gradient */}
                 <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-violet-500"></div>
                 
+                {result && !loading && (
+                  <div className="flex flex-wrap justify-end gap-3 mb-6">
+                    <button
+                      onClick={handleGenerateFlashcards}
+                      disabled={flashcardsLoading}
+                      className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all bg-indigo-100 text-indigo-700 hover:bg-indigo-200"
+                    >
+                      {flashcardsLoading ? (
+                        <>
+                          <Loader2 className="animate-spin" size={16} />
+                          Generating...
+                        </>
+                      ) : (
+                        <>
+                          <Layers size={16} className="text-indigo-500" />
+                          Generate Flashcards
+                        </>
+                      )}
+                    </button>
+                    <button
+                      onClick={handleELI5}
+                      disabled={eli5Loading}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all ${isEli5Mode ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                    >
+                      {eli5Loading ? (
+                        <>
+                          <Loader2 className="animate-spin" size={16} />
+                          Simplifying...
+                        </>
+                      ) : isEli5Mode ? (
+                        <>
+                          <BookOpen size={16} />
+                          Show Original
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles size={16} className="text-amber-500" />
+                          Explain Like I'm 5
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
+
                 {result ? (
-                  <div className="prose prose-slate prose-indigo max-w-none prose-headings:font-bold prose-h1:text-3xl prose-h1:tracking-tight prose-h2:text-2xl prose-h2:tracking-tight prose-h3:text-xl prose-a:text-indigo-600 prose-a:font-semibold prose-code:text-indigo-700 prose-code:bg-indigo-50/80 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:font-semibold prose-code:before:content-none prose-code:after:content-none prose-pre:bg-slate-900 prose-pre:shadow-lg prose-pre:rounded-2xl prose-li:marker:text-indigo-500">
+                  <div className={`prose max-w-none prose-headings:font-bold prose-h1:text-3xl prose-h1:tracking-tight prose-h2:text-2xl prose-h2:tracking-tight prose-h3:text-xl prose-a:font-semibold prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:font-semibold prose-code:before:content-none prose-code:after:content-none prose-pre:bg-slate-900 prose-pre:shadow-lg prose-pre:rounded-2xl ${isEli5Mode ? 'prose-amber prose-a:text-amber-600 prose-code:text-amber-700 prose-code:bg-amber-50/80 prose-li:marker:text-amber-500' : 'prose-slate prose-indigo prose-a:text-indigo-600 prose-code:text-indigo-700 prose-code:bg-indigo-50/80 prose-li:marker:text-indigo-500'}`}>
                     <Markdown
                       components={{
                         code({node, inline, className, children, ...props}: any) {
@@ -1035,7 +1851,7 @@ export default function App() {
                         }
                       }}
                     >
-                      {result}
+                      {isEli5Mode ? eli5Result : result}
                     </Markdown>
                   </div>
                 ) : (
@@ -1052,6 +1868,79 @@ export default function App() {
             
           </div>
         </div>
+        )}
+
+        {/* Flashcards Modal */}
+        {showFlashcards && flashcards.length > 0 && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+              <div className="flex items-center justify-between p-6 border-b border-slate-100">
+                <h3 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                  <Layers className="text-indigo-600" size={24} />
+                  Study Flashcards
+                </h3>
+                <button 
+                  onClick={() => setShowFlashcards(false)}
+                  className="text-slate-400 hover:text-slate-600 transition-colors p-2 hover:bg-slate-100 rounded-full"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              
+              <div className="flex-1 p-8 flex flex-col items-center justify-center bg-slate-50/50 overflow-y-auto">
+                <div 
+                  className="w-full max-w-lg aspect-[3/2] perspective-1000 cursor-pointer group"
+                  onClick={() => setIsFlipped(!isFlipped)}
+                >
+                  <div className={`relative w-full h-full transition-transform duration-500 transform-style-3d ${isFlipped ? 'rotate-y-180' : ''}`}>
+                    {/* Front */}
+                    <div className="absolute inset-0 backface-hidden bg-white rounded-2xl shadow-md border border-slate-200 p-8 flex flex-col items-center justify-center text-center group-hover:shadow-lg transition-shadow">
+                      <div className="absolute top-4 left-4 text-xs font-bold text-indigo-400 uppercase tracking-widest">Front</div>
+                      <h4 className="text-2xl font-bold text-slate-800 leading-tight">
+                        {flashcards[currentCardIndex]?.front}
+                      </h4>
+                      <div className="absolute bottom-4 text-xs font-medium text-slate-400 flex items-center gap-1">
+                        <RotateCcw size={14} /> Click to flip
+                      </div>
+                    </div>
+                    
+                    {/* Back */}
+                    <div className="absolute inset-0 backface-hidden bg-indigo-600 rounded-2xl shadow-md border border-indigo-500 p-8 flex flex-col items-center justify-center text-center rotate-y-180">
+                      <div className="absolute top-4 left-4 text-xs font-bold text-indigo-300 uppercase tracking-widest">Back</div>
+                      <p className="text-xl font-medium text-white leading-relaxed">
+                        {flashcards[currentCardIndex]?.back}
+                      </p>
+                      <div className="absolute bottom-4 text-xs font-medium text-indigo-300 flex items-center gap-1">
+                        <RotateCcw size={14} /> Click to flip
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="flex items-center justify-between w-full max-w-lg mt-8">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setIsFlipped(false); setCurrentCardIndex(prev => Math.max(0, prev - 1)); }}
+                    disabled={currentCardIndex === 0}
+                    className="p-3 rounded-full bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm"
+                  >
+                    <ChevronLeft size={24} />
+                  </button>
+                  
+                  <div className="text-sm font-bold text-slate-500 bg-white px-4 py-2 rounded-full border border-slate-200 shadow-sm">
+                    {currentCardIndex + 1} / {flashcards.length}
+                  </div>
+                  
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setIsFlipped(false); setCurrentCardIndex(prev => Math.min(flashcards.length - 1, prev + 1)); }}
+                    disabled={currentCardIndex === flashcards.length - 1}
+                    className="p-3 rounded-full bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm"
+                  >
+                    <ChevronRight size={24} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Global Footer */}
