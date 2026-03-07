@@ -221,9 +221,13 @@ const Mermaid = ({ chart }: { chart: string }) => {
   return <div ref={ref} className="flex justify-center my-6 overflow-x-auto" />;
 };
 
-const SYSTEM_PROMPT = `You are an Advanced South Asian Competitive Exam Preparation AI acting as a STRICT, NO-NONSENSE EXAM-ORIENTED TEACHER.
+const getSystemPrompt = (mode: 'full' | 'pyq' | 'practice' | 'pyq_practice') => {
+  let prompt = `You are an expert, highly experienced human teacher for competitive exams. You are strict, no-nonsense, and deeply care about your students' success. Speak directly to the student as a human mentor would.
 
-Your job is to provide:
+`;
+
+  if (mode === 'full') {
+    prompt += `Your job is to provide:
 1. Accurate conceptual explanation
 2. Previous Year Questions (PYQs) related to the topic
 3. Generate new exam-level questions
@@ -239,7 +243,7 @@ When a student enters a topic or question, respond in this structured format:
 - Explain the topic EXACTLY as an examiner expects to see it written in an exam sheet, or the exact logic needed to solve the MCQ.
 - CRITICAL RULE: This explanation MUST be so comprehensive and detailed that it covers ALL concepts asked in Previous Year Questions (PYQs). If a student reads this explanation, they should NOT need to read NCERT or any other textbook.
 - Include all exceptions, special cases, and hidden textbook points that are frequently asked in exams.
-- DO NOT use conversational AI language (e.g., "Sure, I can help with that", "Imagine you are...", "Let's dive in").
+- DO NOT use conversational AI language (e.g., "As an AI", "I am an AI"). Speak as a human teacher.
 - Be direct, concise, and purely academic.
 - If a diagram is necessary to explain the concept, use Mermaid.js syntax inside a \`\`\`mermaid code block.
 - Use structured format:
@@ -288,13 +292,116 @@ B) 5 Assertion-Reason Questions
 - This section MUST be at the very end of your response, after all questions are generated.
 - Provide the correct option (e.g., (a), (b), (c), (d)) for each question.
 - EXPLANATION RULE: Provide only the exact logic, formula, or fact needed to solve the question in the exam. Be extremely concise. Do NOT explain why other options are wrong unless it's a specific trick. Keep it strictly exam-oriented.
+`;
+  } else if (mode === 'pyq') {
+    prompt += `Your job is to provide ONLY Previous Year Questions (PYQs) related to the topic. Do not provide concept explanations or new practice questions.
 
+When a student enters a topic or question, respond in this structured format:
+
+-----------------------------------------
+
+📚 PREVIOUS YEAR QUESTIONS (PYQs)
+
+- Provide 5-10 real PYQ-style questions STRICTLY from the user's selected exam. Do NOT provide questions from other exams.
+- Mention the exact exam name and year for each question.
+- Maintain exact exam pattern.
+- DO NOT provide the answer immediately. Wait until the Answer Key section.
+
+-----------------------------------------
+
+🔑 ANSWER KEY & EXPLANATIONS
+
+- This section MUST be at the very end of your response, after all questions are generated.
+- Provide the correct option for each question.
+- EXPLANATION RULE: Provide only the exact logic, formula, or fact needed to solve the question in the exam. Be extremely concise. Keep it strictly exam-oriented.
+`;
+  } else if (mode === 'practice') {
+    prompt += `Your job is to provide ONLY new Practice Questions related to the topic. Do not provide concept explanations or PYQs.
+
+When a student enters a topic or question, respond in this structured format:
+
+-----------------------------------------
+
+📝 PRACTICE QUESTIONS
+
+A) 5 MCQs
+- 4 options each
+- Only one correct answer
+- DO NOT provide the answer immediately. Wait until the Answer Key section.
+- Difficulty level similar to selected exam
+
+B) 5 Assertion-Reason Questions
+- Use standard format:
+  Assertion (A):
+  Reason (R):
+  Options:
+  (a) Both A and R are true and R is correct explanation of A
+  (b) Both A and R are true but R is NOT correct explanation
+  (c) A is true but R is false
+  (d) A is false but R is true
+- DO NOT provide the answer immediately. Wait until the Answer Key section.
+
+-----------------------------------------
+
+🔑 ANSWER KEY & EXPLANATIONS
+
+- This section MUST be at the very end of your response, after all questions are generated.
+- Provide the correct option for each question.
+- EXPLANATION RULE: Provide only the exact logic, formula, or fact needed to solve the question in the exam. Be extremely concise. Keep it strictly exam-oriented.
+`;
+  } else if (mode === 'pyq_practice') {
+    prompt += `Your job is to provide Previous Year Questions (PYQs) and new Practice Questions related to the topic. Do not provide concept explanations.
+
+When a student enters a topic or question, respond in this structured format:
+
+-----------------------------------------
+
+📚 1. PREVIOUS YEAR QUESTIONS (PYQs)
+
+- Provide 3-5 real PYQ-style questions STRICTLY from the user's selected exam. Do NOT provide questions from other exams.
+- Mention the exact exam name and year for each question.
+- Maintain exact exam pattern.
+- DO NOT provide the answer immediately. Wait until the Answer Key section.
+
+-----------------------------------------
+
+📝 2. PRACTICE QUESTIONS
+
+A) 5 MCQs
+- 4 options each
+- Only one correct answer
+- DO NOT provide the answer immediately. Wait until the Answer Key section.
+- Difficulty level similar to selected exam
+
+B) 5 Assertion-Reason Questions
+- Use standard format:
+  Assertion (A):
+  Reason (R):
+  Options:
+  (a) Both A and R are true and R is correct explanation of A
+  (b) Both A and R are true but R is NOT correct explanation
+  (c) A is true but R is false
+  (d) A is false but R is true
+- DO NOT provide the answer immediately. Wait until the Answer Key section.
+
+-----------------------------------------
+
+🔑 3. ANSWER KEY & EXPLANATIONS
+
+- This section MUST be at the very end of your response, after all questions are generated.
+- Provide the correct option for each question.
+- EXPLANATION RULE: Provide only the exact logic, formula, or fact needed to solve the question in the exam. Be extremely concise. Keep it strictly exam-oriented.
+`;
+  }
+
+  prompt += `
 -----------------------------------------
 
 IMPORTANT RULES:
 
-- ACT LIKE A STRICT TEACHER. No fluff, no conversational filler, no emojis in the text (except the section headers).
+- ACT LIKE A STRICT HUMAN TEACHER. No fluff, no conversational filler, no emojis in the text (except the section headers).
 - Just give the facts, formulas, and exact logic required to score marks.
+- NEVER use $ or $$ signs for math equations or variables. Use plain text (e.g., x^2, a+b) or standard unicode characters. The $ sign causes formatting errors and confusion.
 - Do NOT give generic answers.
 - Follow latest syllabus of selected exam.
 - Avoid hallucinated facts.
@@ -306,6 +413,9 @@ If topic is unclear, ask student to specify:
    • Exam name
    • Subject
    • Difficulty level`;
+
+  return prompt;
+};
 
 export default function App() {
   const [exam, setExam] = useState('UPSC');
@@ -415,7 +525,7 @@ export default function App() {
     }
   };
 
-  const handleGenerate = async () => {
+  const handleGenerate = async (mode: 'full' | 'pyq' | 'practice' | 'pyq_practice' = 'full') => {
     if (!isLoggedIn && generationCount >= 2) {
       setShowLoginModal(true);
       return;
@@ -431,13 +541,21 @@ export default function App() {
     setResult('');
 
     try {
-      const prompt = `Topic/Question: ${topic}\nExam: ${exam}\nSubject: ${subject || 'Not specified'}\nDifficulty: ${difficulty}`;
+      let prompt = `Topic/Question: ${topic}\nExam: ${exam}\nSubject: ${subject || 'Not specified'}\nDifficulty: ${difficulty}`;
+      
+      if (mode === 'pyq') {
+        prompt += `\n\nProvide ONLY Previous Year Questions (PYQs) for this topic. Include the year and exam name if possible. Provide detailed solutions.`;
+      } else if (mode === 'practice') {
+        prompt += `\n\nProvide ONLY Practice Questions for this topic. Provide detailed solutions.`;
+      } else if (mode === 'pyq_practice') {
+        prompt += `\n\nProvide a mix of Previous Year Questions (PYQs) and Practice Questions for this topic. Provide detailed solutions.`;
+      }
 
       const response = await ai.models.generateContentStream({
         model: 'gemini-3-flash-preview',
         contents: prompt,
         config: {
-          systemInstruction: SYSTEM_PROMPT,
+          systemInstruction: getSystemPrompt(mode),
           temperature: 0.2,
         },
       });
@@ -494,6 +612,7 @@ export default function App() {
       const prompt = `Generate ALL available Previous Year Questions (PYQs) for the topic "${topic}" in the ${exam} exam. 
       Subject: ${subject || 'Not specified'}. Difficulty: ${difficulty}.
       Do not limit to 5 questions. Provide as many real PYQs as you can find for this topic (aim for 10-25 questions if available).
+      NEVER use $ or $$ signs for math equations or variables. Use plain text (e.g., x^2, a+b) or standard unicode characters.
       Return ONLY a valid JSON array of objects. Each object must have: 'question' (string), 'options' (array of 4 strings), 'correctOptionIndex' (number 0-3), 'explanation' (string), 'year' (string - e.g. "JEE 2019").`;
 
       const response = await ai.models.generateContent({
@@ -603,7 +722,7 @@ export default function App() {
         model: 'gemini-3-flash-preview',
         contents: prompt,
         config: {
-          systemInstruction: "You are an expert exam strategist and study planner. Provide realistic, actionable, and highly structured study plans.",
+          systemInstruction: "You are an expert, highly experienced human teacher and exam strategist. Provide realistic, actionable, and highly structured study plans. Speak directly to the student as a human mentor would. NEVER use $ or $$ signs.",
           temperature: 0.3,
         },
       });
@@ -639,6 +758,7 @@ export default function App() {
       if (!ai) throw new Error("AI not initialized");
       const prompt = `Generate 5 Daily Current Affairs Multiple Choice Questions relevant for ${exam}. 
       Focus on the most important news from the last 30 days.
+      NEVER use $ or $$ signs for math equations or variables. Use plain text (e.g., x^2, a+b) or standard unicode characters.
       Return ONLY a valid JSON array of objects. Each object must have: 'question' (string), 'options' (array of 4 strings), 'correctOptionIndex' (number 0-3), 'explanation' (string), 'year' (string - use "Current Affairs").`;
 
       const response = await ai.models.generateContent({
@@ -700,7 +820,7 @@ export default function App() {
         model: 'gemini-3-flash-preview',
         contents: prompt,
         config: {
-          systemInstruction: "You are a friendly, enthusiastic teacher who explains complex concepts using simple, everyday analogies.",
+          systemInstruction: "You are a friendly, enthusiastic human teacher who explains complex concepts using simple, everyday analogies. Speak directly to the student as a human mentor would. NEVER use $ or $$ signs.",
           temperature: 0.7,
         },
       });
@@ -729,6 +849,7 @@ export default function App() {
       const prompt = `Extract the most important key concepts, formulas, and facts from the following study material and convert them into flashcards.
       Return ONLY a valid JSON array of objects. Each object must have: 'front' (the question, concept name, or formula name) and 'back' (the answer, definition, or formula).
       Limit to the 15 most important flashcards.
+      NEVER use $ or $$ signs for math equations or variables. Use plain text (e.g., x^2, a+b) or standard unicode characters.
       
       Material:
       ${result}`;
@@ -771,7 +892,8 @@ export default function App() {
       if (!ai) throw new Error("AI not initialized");
       const prompt = `Generate the official, detailed syllabus for the ${exam} exam.
       Return ONLY a valid JSON array of objects representing the main subjects. 
-      Each subject object must have: 'subject' (string) and 'topics' (array of strings).`;
+      Each subject object must have: 'subject' (string) and 'topics' (array of strings).
+      NEVER use $ or $$ signs.`;
 
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
@@ -910,7 +1032,7 @@ export default function App() {
       }
 
       const contextText = chatMessages.map(m => `${m.role}: ${m.text}`).join('\n');
-      parts.push({ text: `\n\nPrevious context:\n${contextText}\n\nYou are a helpful, expert Doubt Solver for competitive exams. Answer the student's doubt clearly and concisely.` });
+      parts.push({ text: `\n\nPrevious context:\n${contextText}\n\nYou are an expert, highly experienced human teacher for competitive exams. Answer the student's doubt clearly and concisely. Speak directly to the student as a human mentor would. DO NOT use conversational AI language (e.g., "As an AI", "I am an AI"). NEVER use $ or $$ signs for math equations or variables. Use plain text (e.g., x^2, a+b) or standard unicode characters. The $ sign causes formatting errors.` });
 
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
@@ -1857,7 +1979,7 @@ export default function App() {
           </div>
         ) : (
         <div className="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth">
-          <div className="max-w-4xl mx-auto space-y-8 pb-12">
+          <div className="max-w-3xl mx-auto space-y-8 pb-12">
             
             {/* Input Section */}
             <div className="bg-white/80 backdrop-blur-xl rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-200/60 p-6 md:p-8 transition-all hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)]">
@@ -1879,10 +2001,10 @@ export default function App() {
                     value={topic}
                     onChange={(e) => setTopic(e.target.value)}
                     placeholder="e.g. Rotational Mechanics, Revolt of 1857, Time and Work..."
-                    className="w-full min-h-[140px] rounded-2xl border border-slate-200 bg-slate-50/50 px-5 py-4 text-[15px] leading-relaxed text-slate-800 placeholder:text-slate-400 focus:border-indigo-400 focus:bg-white focus:outline-none focus:ring-4 focus:ring-indigo-500/10 resize-y transition-all group-hover:border-indigo-200"
+                    className="w-full min-h-[120px] rounded-2xl border border-slate-200 bg-slate-50/50 px-5 py-4 text-[15px] leading-relaxed text-slate-800 placeholder:text-slate-400 focus:border-indigo-400 focus:bg-white focus:outline-none focus:ring-4 focus:ring-indigo-500/10 resize-y transition-all group-hover:border-indigo-200"
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                        handleGenerate();
+                        handleGenerate('full');
                       }
                     }}
                   />
@@ -1891,23 +2013,44 @@ export default function App() {
                   </div>
                 </div>
                 
-                <div className="flex items-center justify-end">
+                <div className="flex items-center justify-start sm:justify-end gap-2 overflow-x-auto pb-2 w-full snap-x">
                   <button
-                    onClick={handleGenerate}
+                    onClick={() => handleGenerate('full')}
                     disabled={loading || !topic.trim()}
-                    className="inline-flex items-center justify-center gap-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-8 py-3.5 text-sm font-bold text-white shadow-lg shadow-indigo-500/25 hover:from-indigo-500 hover:to-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-[1.02] active:scale-[0.98] transition-all"
+                    className="shrink-0 snap-start inline-flex items-center justify-center gap-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-6 py-3.5 text-sm font-bold text-white shadow-lg shadow-indigo-500/25 hover:from-indigo-500 hover:to-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-[1.02] active:scale-[0.98] transition-all"
                   >
                     {loading ? (
                       <>
-                        <Loader2 size={20} className="animate-spin" />
+                        <Loader2 size={18} className="animate-spin" />
                         Generating...
                       </>
                     ) : (
                       <>
-                        <Send size={20} />
-                        Generate Material
+                        <Send size={18} />
+                        Full Material
                       </>
                     )}
+                  </button>
+                  <button
+                    onClick={() => handleGenerate('pyq')}
+                    disabled={loading || !topic.trim()}
+                    className="shrink-0 snap-start inline-flex items-center justify-center gap-2.5 rounded-xl bg-white border border-slate-200 px-6 py-3.5 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50 hover:text-indigo-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-[1.02] active:scale-[0.98] transition-all"
+                  >
+                    PYQ
+                  </button>
+                  <button
+                    onClick={() => handleGenerate('practice')}
+                    disabled={loading || !topic.trim()}
+                    className="shrink-0 snap-start inline-flex items-center justify-center gap-2.5 rounded-xl bg-white border border-slate-200 px-6 py-3.5 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50 hover:text-indigo-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-[1.02] active:scale-[0.98] transition-all"
+                  >
+                    Practice Qs
+                  </button>
+                  <button
+                    onClick={() => handleGenerate('pyq_practice')}
+                    disabled={loading || !topic.trim()}
+                    className="shrink-0 snap-start inline-flex items-center justify-center gap-2.5 rounded-xl bg-white border border-slate-200 px-6 py-3.5 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50 hover:text-indigo-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-[1.02] active:scale-[0.98] transition-all"
+                  >
+                    PYQ + Practice
                   </button>
                 </div>
               </div>
