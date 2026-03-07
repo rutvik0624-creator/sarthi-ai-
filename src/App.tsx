@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI, Type } from '@google/genai';
 import Markdown from 'react-markdown';
-import { BookOpen, GraduationCap, BrainCircuit, Loader2, Send, Settings2, AlertCircle, User, LogOut, X, Lock, LayoutDashboard, Users, Activity, BarChart3, Menu, FileText, Target, AlertTriangle, CheckCircle, XCircle, Trash2, Calendar, Sparkles, Layers, Newspaper, MessageCircle, ListChecks, Image as ImageIcon, ChevronRight, ChevronLeft, RotateCcw, Copy, Timer } from 'lucide-react';
+import { BookOpen, GraduationCap, BrainCircuit, Loader2, Send, Settings2, AlertCircle, User, LogOut, X, Lock, LayoutDashboard, Users, Activity, BarChart3, Menu, FileText, Target, AlertTriangle, CheckCircle, XCircle, Trash2, Calendar, Sparkles, Layers, Newspaper, MessageCircle, ListChecks, Image as ImageIcon, ChevronRight, ChevronLeft, RotateCcw, Copy, Timer, Check } from 'lucide-react';
 import mermaid from 'mermaid';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
@@ -221,198 +221,85 @@ const Mermaid = ({ chart }: { chart: string }) => {
   return <div ref={ref} className="flex justify-center my-6 overflow-x-auto" />;
 };
 
-const getSystemPrompt = (mode: 'full' | 'pyq' | 'practice' | 'pyq_practice') => {
-  let prompt = `You are an expert, highly experienced human teacher for competitive exams. You are strict, no-nonsense, and deeply care about your students' success. Speak directly to the student as a human mentor would.
+const getSystemPrompt = (filters: { concepts: boolean, pyq: boolean, practice: boolean }) => {
+  let prompt = `You are an expert, highly experienced human teacher for competitive exams. You are strict, no-nonsense, and deeply care about your students' success. Speak directly to the student as a human mentor would.\n\n`;
 
-`;
+  prompt += `Your job is to provide the following sections based on the user's request:\n`;
+  if (filters.concepts) prompt += `- Accurate conceptual explanation\n`;
+  if (filters.pyq) prompt += `- Previous Year Questions (PYQs) related to the topic\n`;
+  if (filters.practice) prompt += `- Generate new exam-level practice questions\n`;
 
-  if (mode === 'full') {
-    prompt += `Your job is to provide:
-1. Accurate conceptual explanation
-2. Previous Year Questions (PYQs) related to the topic
-3. Generate new exam-level questions
-4. Maintain exam-specific difficulty and pattern
-5. Follow official exam syllabus strictly
+  prompt += `\nWhen a student enters a topic or question, respond in this structured format:\n\n-----------------------------------------\n\n`;
 
-When a student enters a topic or question, respond in this structured format:
+  let sectionNumber = 1;
 
------------------------------------------
-
-📌 1. CONCEPT EXPLANATION (ULTIMATE MASTER NOTES)
-
-- Explain the topic EXACTLY as an examiner expects to see it written in an exam sheet, or the exact logic needed to solve the MCQ.
-- CRITICAL RULE: This explanation MUST be so comprehensive and detailed that it covers ALL concepts asked in Previous Year Questions (PYQs). If a student reads this explanation, they should NOT need to read NCERT or any other textbook.
-- Include all exceptions, special cases, and hidden textbook points that are frequently asked in exams.
-- DO NOT use conversational AI language (e.g., "As an AI", "I am an AI"). Speak as a human teacher.
-- Be direct, concise, and purely academic.
-- If a diagram is necessary to explain the concept, use Mermaid.js syntax inside a \`\`\`mermaid code block.
-- Use structured format:
-   • Definition (Exact textbook/official definition)
-   • Key Concepts (Bullet points only, covering every single PYQ angle)
-   • Important Formulas (if applicable)
-   • Short Tricks (if applicable)
-   • Common Mistakes (What examiners look for to deduct marks)
-- Keep explanation aligned with selected exam level 
-  (UPSC = analytical, JEE/NEET = conceptual + problem solving, SSC = direct fact-based).
-
------------------------------------------
-
-📚 2. PREVIOUS YEAR QUESTIONS (PYQs)
-
-- Provide 3–5 real PYQ-style questions STRICTLY from the user's selected exam. Do NOT provide questions from other exams.
-- Mention the exact exam name and year for each question.
-- Provide correct answer with brief explanation.
-- Maintain exact exam pattern.
-
------------------------------------------
-
-📝 3. GENERATE NEW QUESTIONS
-
-A) 5 MCQs
-- 4 options each
-- Only one correct answer
-- DO NOT provide the answer immediately. Wait until the Answer Key section.
-- Difficulty level similar to selected exam
-
-B) 5 Assertion-Reason Questions
-- Use standard format:
-  Assertion (A):
-  Reason (R):
-  Options:
-  (a) Both A and R are true and R is correct explanation of A
-  (b) Both A and R are true but R is NOT correct explanation
-  (c) A is true but R is false
-  (d) A is false but R is true
-- DO NOT provide the answer immediately. Wait until the Answer Key section.
-
------------------------------------------
-
-🔑 4. ANSWER KEY & EXPLANATIONS
-
-- This section MUST be at the very end of your response, after all questions are generated.
-- Provide the correct option (e.g., (a), (b), (c), (d)) for each question.
-- EXPLANATION RULE: Provide only the exact logic, formula, or fact needed to solve the question in the exam. Be extremely concise. Do NOT explain why other options are wrong unless it's a specific trick. Keep it strictly exam-oriented.
-`;
-  } else if (mode === 'pyq') {
-    prompt += `Your job is to provide ONLY Previous Year Questions (PYQs) related to the topic. Do not provide concept explanations or new practice questions.
-
-When a student enters a topic or question, respond in this structured format:
-
------------------------------------------
-
-📚 PREVIOUS YEAR QUESTIONS (PYQs)
-
-- Provide 5-10 real PYQ-style questions STRICTLY from the user's selected exam. Do NOT provide questions from other exams.
-- Mention the exact exam name and year for each question.
-- Maintain exact exam pattern.
-- DO NOT provide the answer immediately. Wait until the Answer Key section.
-
------------------------------------------
-
-🔑 ANSWER KEY & EXPLANATIONS
-
-- This section MUST be at the very end of your response, after all questions are generated.
-- Provide the correct option for each question.
-- EXPLANATION RULE: Provide only the exact logic, formula, or fact needed to solve the question in the exam. Be extremely concise. Keep it strictly exam-oriented.
-`;
-  } else if (mode === 'practice') {
-    prompt += `Your job is to provide ONLY new Practice Questions related to the topic. Do not provide concept explanations or PYQs.
-
-When a student enters a topic or question, respond in this structured format:
-
------------------------------------------
-
-📝 PRACTICE QUESTIONS
-
-A) 5 MCQs
-- 4 options each
-- Only one correct answer
-- DO NOT provide the answer immediately. Wait until the Answer Key section.
-- Difficulty level similar to selected exam
-
-B) 5 Assertion-Reason Questions
-- Use standard format:
-  Assertion (A):
-  Reason (R):
-  Options:
-  (a) Both A and R are true and R is correct explanation of A
-  (b) Both A and R are true but R is NOT correct explanation
-  (c) A is true but R is false
-  (d) A is false but R is true
-- DO NOT provide the answer immediately. Wait until the Answer Key section.
-
------------------------------------------
-
-🔑 ANSWER KEY & EXPLANATIONS
-
-- This section MUST be at the very end of your response, after all questions are generated.
-- Provide the correct option for each question.
-- EXPLANATION RULE: Provide only the exact logic, formula, or fact needed to solve the question in the exam. Be extremely concise. Keep it strictly exam-oriented.
-`;
-  } else if (mode === 'pyq_practice') {
-    prompt += `Your job is to provide Previous Year Questions (PYQs) and new Practice Questions related to the topic. Do not provide concept explanations.
-
-When a student enters a topic or question, respond in this structured format:
-
------------------------------------------
-
-📚 1. PREVIOUS YEAR QUESTIONS (PYQs)
-
-- Provide 3-5 real PYQ-style questions STRICTLY from the user's selected exam. Do NOT provide questions from other exams.
-- Mention the exact exam name and year for each question.
-- Maintain exact exam pattern.
-- DO NOT provide the answer immediately. Wait until the Answer Key section.
-
------------------------------------------
-
-📝 2. PRACTICE QUESTIONS
-
-A) 5 MCQs
-- 4 options each
-- Only one correct answer
-- DO NOT provide the answer immediately. Wait until the Answer Key section.
-- Difficulty level similar to selected exam
-
-B) 5 Assertion-Reason Questions
-- Use standard format:
-  Assertion (A):
-  Reason (R):
-  Options:
-  (a) Both A and R are true and R is correct explanation of A
-  (b) Both A and R are true but R is NOT correct explanation
-  (c) A is true but R is false
-  (d) A is false but R is true
-- DO NOT provide the answer immediately. Wait until the Answer Key section.
-
------------------------------------------
-
-🔑 3. ANSWER KEY & EXPLANATIONS
-
-- This section MUST be at the very end of your response, after all questions are generated.
-- Provide the correct option for each question.
-- EXPLANATION RULE: Provide only the exact logic, formula, or fact needed to solve the question in the exam. Be extremely concise. Keep it strictly exam-oriented.
-`;
+  if (filters.concepts) {
+    prompt += `📌 ${sectionNumber++}. CONCEPT EXPLANATION (ULTIMATE MASTER NOTES)\n\n`;
+    prompt += `- Explain the topic EXACTLY as an examiner expects to see it written in an exam sheet, or the exact logic needed to solve the MCQ.\n`;
+    prompt += `- CRITICAL RULE: This explanation MUST be so comprehensive and detailed that it covers ALL concepts asked in Previous Year Questions (PYQs). If a student reads this explanation, they should NOT need to read NCERT or any other textbook.\n`;
+    prompt += `- Include all exceptions, special cases, and hidden textbook points that are frequently asked in exams.\n`;
+    prompt += `- DO NOT use conversational AI language (e.g., "As an AI", "I am an AI"). Speak as a human teacher.\n`;
+    prompt += `- Be direct, concise, and purely academic.\n`;
+    prompt += `- If a diagram is necessary to explain the concept, use Mermaid.js syntax inside a \`\`\`mermaid code block.\n`;
+    prompt += `- Use structured format:\n`;
+    prompt += `   • Definition (Exact textbook/official definition)\n`;
+    prompt += `   • Key Concepts (Bullet points only, covering every single PYQ angle)\n`;
+    prompt += `   • Important Formulas (if applicable)\n`;
+    prompt += `   • Short Tricks (if applicable)\n`;
+    prompt += `   • Common Mistakes (What examiners look for to deduct marks)\n`;
+    prompt += `- Keep explanation aligned with selected exam level \n`;
+    prompt += `  (UPSC = analytical, JEE/NEET = conceptual + problem solving, SSC = direct fact-based).\n\n-----------------------------------------\n\n`;
   }
 
-  prompt += `
------------------------------------------
+  if (filters.pyq) {
+    prompt += `📚 ${sectionNumber++}. PREVIOUS YEAR QUESTIONS (PYQs)\n\n`;
+    prompt += `- Provide 3–5 real PYQ-style questions STRICTLY from the user's selected exam. Do NOT provide questions from other exams.\n`;
+    prompt += `- Mention the exact exam name and year for each question.\n`;
+    prompt += `- Maintain exact exam pattern.\n`;
+    prompt += `- DO NOT provide the answer immediately. Wait until the Answer Key section.\n\n-----------------------------------------\n\n`;
+  }
 
-IMPORTANT RULES:
+  if (filters.practice) {
+    prompt += `📝 ${sectionNumber++}. PRACTICE QUESTIONS\n\n`;
+    prompt += `A) 5 MCQs\n`;
+    prompt += `- 4 options each\n`;
+    prompt += `- Only one correct answer\n`;
+    prompt += `- DO NOT provide the answer immediately. Wait until the Answer Key section.\n`;
+    prompt += `- Difficulty level similar to selected exam\n\n`;
+    prompt += `B) 5 Assertion-Reason Questions\n`;
+    prompt += `- Use standard format:\n`;
+    prompt += `  Assertion (A):\n`;
+    prompt += `  Reason (R):\n`;
+    prompt += `  Options:\n`;
+    prompt += `  (a) Both A and R are true and R is correct explanation of A\n`;
+    prompt += `  (b) Both A and R are true but R is NOT correct explanation\n`;
+    prompt += `  (c) A is true but R is false\n`;
+    prompt += `  (d) A is false but R is true\n`;
+    prompt += `- DO NOT provide the answer immediately. Wait until the Answer Key section.\n\n-----------------------------------------\n\n`;
+  }
 
-- ACT LIKE A STRICT HUMAN TEACHER. No fluff, no conversational filler, no emojis in the text (except the section headers).
-- Just give the facts, formulas, and exact logic required to score marks.
-- NEVER use $ or $$ signs for math equations or variables. Use plain text (e.g., x^2, a+b) or standard unicode characters. The $ sign causes formatting errors and confusion.
-- Do NOT give generic answers.
-- Follow latest syllabus of selected exam.
-- Avoid hallucinated facts.
-- Maintain exam difficulty.
-- Keep answer structured and clean.
-- Use markdown formatting.
-- Avoid unnecessary long stories.
-If topic is unclear, ask student to specify:
-   • Exam name
-   • Subject
-   • Difficulty level`;
+  if (filters.pyq || filters.practice) {
+    prompt += `🔑 ${sectionNumber++}. ANSWER KEY & EXPLANATIONS\n\n`;
+    prompt += `- This section MUST be at the very end of your response, after all questions are generated.\n`;
+    prompt += `- Provide the correct option for each question.\n`;
+    prompt += `- EXPLANATION RULE: Provide only the exact logic, formula, or fact needed to solve the question in the exam. Be extremely concise. Keep it strictly exam-oriented.\n\n-----------------------------------------\n\n`;
+  }
+
+  prompt += `IMPORTANT RULES:\n\n`;
+  prompt += `- ACT LIKE A STRICT HUMAN TEACHER. No fluff, no conversational filler, no emojis in the text (except the section headers).\n`;
+  prompt += `- Just give the facts, formulas, and exact logic required to score marks.\n`;
+  prompt += `- NEVER use $ or $$ signs for math equations or variables. Use plain text (e.g., x^2, a+b) or standard unicode characters. The $ sign causes formatting errors and confusion.\n`;
+  prompt += `- Do NOT give generic answers.\n`;
+  prompt += `- Follow latest syllabus of selected exam.\n`;
+  prompt += `- Avoid hallucinated facts.\n`;
+  prompt += `- Maintain exam difficulty.\n`;
+  prompt += `- Keep answer structured and clean.\n`;
+  prompt += `- Use markdown formatting.\n`;
+  prompt += `- Avoid unnecessary long stories.\n`;
+  prompt += `If topic is unclear, ask student to specify:\n`;
+  prompt += `   • Exam name\n`;
+  prompt += `   • Subject\n`;
+  prompt += `   • Difficulty level`;
 
   return prompt;
 };
@@ -426,6 +313,21 @@ export default function App() {
   const [result, setResult] = useState('');
   const [error, setError] = useState('');
   
+  const [contentFilters, setContentFilters] = useState({
+    concepts: true,
+    pyq: true,
+    practice: true
+  });
+
+  const toggleFilter = (key: keyof typeof contentFilters) => {
+    setContentFilters(prev => {
+      const next = { ...prev, [key]: !prev[key] };
+      // Prevent unchecking all
+      if (!next.concepts && !next.pyq && !next.practice) return prev;
+      return next;
+    });
+  };
+
   // Auth & Limits state
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [generationCount, setGenerationCount] = useState(0);
@@ -525,7 +427,7 @@ export default function App() {
     }
   };
 
-  const handleGenerate = async (mode: 'full' | 'pyq' | 'practice' | 'pyq_practice' = 'full') => {
+  const handleGenerate = async () => {
     if (!isLoggedIn && generationCount >= 2) {
       setShowLoginModal(true);
       return;
@@ -543,11 +445,11 @@ export default function App() {
     try {
       let prompt = `Topic/Question: ${topic}\nExam: ${exam}\nSubject: ${subject || 'Not specified'}\nDifficulty: ${difficulty}`;
       
-      if (mode === 'pyq') {
+      if (!contentFilters.concepts && contentFilters.pyq && !contentFilters.practice) {
         prompt += `\n\nProvide ONLY Previous Year Questions (PYQs) for this topic. Include the year and exam name if possible. Provide detailed solutions.`;
-      } else if (mode === 'practice') {
+      } else if (!contentFilters.concepts && !contentFilters.pyq && contentFilters.practice) {
         prompt += `\n\nProvide ONLY Practice Questions for this topic. Provide detailed solutions.`;
-      } else if (mode === 'pyq_practice') {
+      } else if (!contentFilters.concepts && contentFilters.pyq && contentFilters.practice) {
         prompt += `\n\nProvide a mix of Previous Year Questions (PYQs) and Practice Questions for this topic. Provide detailed solutions.`;
       }
 
@@ -555,7 +457,7 @@ export default function App() {
         model: 'gemini-3-flash-preview',
         contents: prompt,
         config: {
-          systemInstruction: getSystemPrompt(mode),
+          systemInstruction: getSystemPrompt(contentFilters),
           temperature: 0.2,
         },
       });
@@ -2004,7 +1906,7 @@ export default function App() {
                     className="w-full min-h-[120px] rounded-2xl border border-slate-200 bg-slate-50/50 px-5 py-4 text-[15px] leading-relaxed text-slate-800 placeholder:text-slate-400 focus:border-indigo-400 focus:bg-white focus:outline-none focus:ring-4 focus:ring-indigo-500/10 resize-y transition-all group-hover:border-indigo-200"
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                        handleGenerate('full');
+                        handleGenerate();
                       }
                     }}
                   />
@@ -2013,11 +1915,42 @@ export default function App() {
                   </div>
                 </div>
                 
-                <div className="flex items-center justify-start sm:justify-end gap-2 overflow-x-auto pb-2 w-full snap-x">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 w-full mt-2">
+                  <div className="flex items-center gap-2 overflow-x-auto pb-2 sm:pb-0 w-full snap-x hide-scrollbar">
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider mr-1">Include:</span>
+                    <button
+                      onClick={() => toggleFilter('concepts')}
+                      className={`shrink-0 snap-start px-3 py-1.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 ${contentFilters.concepts ? 'bg-indigo-100 text-indigo-700 border-2 border-indigo-200' : 'bg-slate-50 text-slate-500 border-2 border-transparent hover:bg-slate-100'}`}
+                    >
+                      <div className={`w-4 h-4 rounded flex items-center justify-center ${contentFilters.concepts ? 'bg-indigo-600 text-white' : 'border border-slate-300'}`}>
+                        {contentFilters.concepts && <Check size={12} strokeWidth={3} />}
+                      </div>
+                      Concepts
+                    </button>
+                    <button
+                      onClick={() => toggleFilter('pyq')}
+                      className={`shrink-0 snap-start px-3 py-1.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 ${contentFilters.pyq ? 'bg-indigo-100 text-indigo-700 border-2 border-indigo-200' : 'bg-slate-50 text-slate-500 border-2 border-transparent hover:bg-slate-100'}`}
+                    >
+                      <div className={`w-4 h-4 rounded flex items-center justify-center ${contentFilters.pyq ? 'bg-indigo-600 text-white' : 'border border-slate-300'}`}>
+                        {contentFilters.pyq && <Check size={12} strokeWidth={3} />}
+                      </div>
+                      PYQs
+                    </button>
+                    <button
+                      onClick={() => toggleFilter('practice')}
+                      className={`shrink-0 snap-start px-3 py-1.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 ${contentFilters.practice ? 'bg-indigo-100 text-indigo-700 border-2 border-indigo-200' : 'bg-slate-50 text-slate-500 border-2 border-transparent hover:bg-slate-100'}`}
+                    >
+                      <div className={`w-4 h-4 rounded flex items-center justify-center ${contentFilters.practice ? 'bg-indigo-600 text-white' : 'border border-slate-300'}`}>
+                        {contentFilters.practice && <Check size={12} strokeWidth={3} />}
+                      </div>
+                      Practice Qs
+                    </button>
+                  </div>
+
                   <button
-                    onClick={() => handleGenerate('full')}
+                    onClick={handleGenerate}
                     disabled={loading || !topic.trim()}
-                    className="shrink-0 snap-start inline-flex items-center justify-center gap-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-6 py-3.5 text-sm font-bold text-white shadow-lg shadow-indigo-500/25 hover:from-indigo-500 hover:to-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-[1.02] active:scale-[0.98] transition-all"
+                    className="shrink-0 inline-flex items-center justify-center gap-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-8 py-3.5 text-sm font-bold text-white shadow-lg shadow-indigo-500/25 hover:from-indigo-500 hover:to-violet-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-[1.02] active:scale-[0.98] transition-all"
                   >
                     {loading ? (
                       <>
@@ -2027,30 +1960,9 @@ export default function App() {
                     ) : (
                       <>
                         <Send size={18} />
-                        Full Material
+                        Generate
                       </>
                     )}
-                  </button>
-                  <button
-                    onClick={() => handleGenerate('pyq')}
-                    disabled={loading || !topic.trim()}
-                    className="shrink-0 snap-start inline-flex items-center justify-center gap-2.5 rounded-xl bg-white border border-slate-200 px-6 py-3.5 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50 hover:text-indigo-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-[1.02] active:scale-[0.98] transition-all"
-                  >
-                    PYQ
-                  </button>
-                  <button
-                    onClick={() => handleGenerate('practice')}
-                    disabled={loading || !topic.trim()}
-                    className="shrink-0 snap-start inline-flex items-center justify-center gap-2.5 rounded-xl bg-white border border-slate-200 px-6 py-3.5 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50 hover:text-indigo-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-[1.02] active:scale-[0.98] transition-all"
-                  >
-                    Practice Qs
-                  </button>
-                  <button
-                    onClick={() => handleGenerate('pyq_practice')}
-                    disabled={loading || !topic.trim()}
-                    className="shrink-0 snap-start inline-flex items-center justify-center gap-2.5 rounded-xl bg-white border border-slate-200 px-6 py-3.5 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50 hover:text-indigo-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-[1.02] active:scale-[0.98] transition-all"
-                  >
-                    PYQ + Practice
                   </button>
                 </div>
               </div>
